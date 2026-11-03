@@ -18,6 +18,10 @@ _Avoid_: Applicant, profile, user
 A persistent, independently running search for one kind of role, with its own targeting, positioning, and submission policy.
 _Avoid_: Search, campaign, job search
 
+**Positioning**:
+A Hunt's choice of what to emphasise, prioritise, or leave out when presenting the Candidate. It never holds Candidate Facts of its own, and it never changes a truthful answer to a required question.
+_Avoid_: Profile variant, persona, angle
+
 **Opportunity**:
 One real job posting, normalized and deduplicated across every source and Hunt that found it. It describes the posting only, never a Hunt's judgement of it.
 _Avoid_: Job, posting, listing, lead
@@ -66,16 +70,32 @@ _Avoid_: Status, result
 
 ## Candidate knowledge and answers
 
+**Candidate Knowledge Base**:
+Everything the system knows about the Candidate: Entries, Candidate Facts, Answer Policies, and Base Resumes. It is the source of every Application, and nothing the system writes for an Application flows back into it as evidence.
+_Avoid_: Profile, memory, resume
+
+**Entry**:
+One thing in the Candidate's history (a role, degree, project, story, or certification) that Candidate Facts are grouped under.
+_Avoid_: Experience, item, section, record
+
 **Candidate Fact**:
-A single claim about the Candidate, carrying where it came from and how strongly it is supported.
+A single claim about the Candidate, carrying where it came from and how strongly it is supported. It comes only from the Candidate's own words or documents, or from an inference that cites them.
 _Avoid_: Profile field, memory, saved answer
 
 **Authoritative Fact**:
-A Candidate Fact only the Candidate may establish or change (legal name, work authorization, degrees, employment dates). The system may use it but never alter or embellish it.
+A Candidate Fact only the Candidate may establish or change (legal name, work authorization, degrees, employment dates). The Candidate's own uploaded documents count as establishing it. The system may use it but never alter, embellish, or choose between conflicting versions of it.
 _Avoid_: Locked fact, protected field
 
+**Commitment**:
+A promise to an employer that only the Candidate may make, such as relocation, travel, start date, or compensation. It comes from the Driving Hunt, an Answer Policy, or an Authoritative Fact; a Hunt's Commitment can never break a Candidate-wide constraint, and the system never infers or alters one.
+_Avoid_: Preference, availability
+
+**Base Resume**:
+A reusable resume the Candidate's Applications can start from, shared across Hunts. It is never required, and every Application still gets its own tailored resume.
+_Avoid_: Resume family, resume template, master resume
+
 **Answer Policy**:
-The Candidate's standing instruction for answering a whole class of application question, such as sponsorship or demographic disclosure.
+The Candidate's standing instruction for answering a whole class of application question, such as sponsorship or demographic disclosure. It applies to the Candidate across all Hunts and can never contradict an Authoritative Fact.
 _Avoid_: Locked Answer, canned answer, default answer
 
 **Application Answer**:
