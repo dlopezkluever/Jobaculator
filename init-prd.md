@@ -329,15 +329,18 @@ Supporting objects include:
 
 ```text
 Candidate Sources
-Candidate Facts
+Candidate Facts (some Authoritative)
 Candidate Stories
-Authoritative Answers
+Answer Policies
+Matches
 Application Packages
 Browser Runs
 Interventions
-Application Outcomes
+Application Outcomes (not required in Phase 0)
 Generated Documents
 ```
+
+Canonical terms are defined in `GLOSSARY.md`.
 
 ---
 
@@ -1199,6 +1202,8 @@ IF fit_score >= 90
 THEN review_before_submit
 ```
 
+Review is opt-in; there is no default review requirement. It happens just before final submission, on what the employer will actually receive. If any qualifying Hunt's explicit Review rule applies to an Opportunity, it is honoured. See `docs/adr/0001`.
+
 ---
 
 # 29. Application Package
@@ -1429,6 +1434,8 @@ Disability
 ```
 
 These answers can be configured once and reused.
+
+These are modeled as **Answer Policies**. Reusable answers (§38) are simply Candidate Facts.
 
 ---
 
@@ -1717,44 +1724,32 @@ Unknown / Rejected / Interview / Offer
 
 # 53. Application Lifecycle
 
-Suggested state machine:
+Lifecycles are split across three objects (see `docs/adr/0001`, `docs/adr/0002`).
 
 ```text
-DISCOVERED
-    ↓
-EVALUATING
-    ↓
-QUALIFIED
-    ↓
-PREPARING
-    ↓
-READY
-   ↙  ↘
-REVIEW  APPLYING
-   ↓       ↓
-APPLYING  BLOCKED
-   ↓       ↓
-SUBMITTED ← RESUME
-    ↓
-OUTCOME_PENDING
-   ↙   ↓   ↘
-REJECTED INTERVIEW OFFER
+Opportunity:  OPEN → CLOSED
+
+Match (per Hunt × Opportunity):
+              PENDING → QUALIFIED | DISQUALIFIED
+              decision: SKIP | AUTO_APPLY | REVIEW
+
+Application (exists only once a Match decides to apply; one per Opportunity):
+              PREPARING → READY → APPLYING → (IN_REVIEW) → SUBMITTING → SUBMITTED
+              SUBMITTING → SUBMIT_UNKNOWN   (never retried automatically)
+              any active state ⇄ NEEDS_YOU  (open Intervention)
+              ABANDONED  (Candidate declined; only the Candidate may reopen)
+              EXPIRED    (posting closed unsubmitted; may be reconsidered if it reopens)
 ```
 
-Additional terminal states:
-
-```text
-SKIPPED
-DUPLICATE
-EXPIRED
-USER_DECLINED
-```
+The Application lifecycle ends at **SUBMITTED**. Duplicates are not a state: they merge into the existing Opportunity.
 
 ---
 
 # 54. Outcome Tracking
 
-Initial V1 behavior:
+Phase 0: **not required.** The lifecycle ends at Submitted; no response is never treated as a rejection. Outcomes may later be recorded optionally (e.g. "Got an interview") or detected from email (see `docs/adr/0002`).
+
+Later behavior:
 
 **Manual outcome updates.**
 
@@ -2569,7 +2564,7 @@ System shall display Hunt and application activity.
 
 ## FR-030 — Outcomes
 
-System shall allow manual application outcome tracking.
+System shall allow manual application outcome tracking. *(Not required in Phase 0; see `docs/adr/0002`.)*
 
 ---
 
@@ -2635,9 +2630,9 @@ User
 
 Candidate
 CandidateSource
-CandidateFact
+CandidateFact        (authoritative flag)
 CandidateStory
-AuthoritativeFact
+AnswerPolicy
 
 Hunt
 HuntCriterion
@@ -2646,7 +2641,7 @@ HuntPolicy
 Opportunity
 OpportunitySource
 OpportunitySnapshot
-OpportunityScore
+Match                (Hunt × Opportunity: qualification, fit, decision)
 
 Application
 ApplicationPackage
@@ -2658,7 +2653,7 @@ BrowserRun
 BrowserEvent
 Intervention
 
-ApplicationOutcome
+ApplicationOutcome   (not required in Phase 0)
 ```
 
 ---
@@ -2671,11 +2666,11 @@ User
       ├── CandidateSources
       ├── CandidateFacts
       ├── CandidateStories
-      ├── AuthoritativeFacts
+      ├── AnswerPolicies
       └── Hunts
             ├── HuntCriteria
-            └── Opportunities
-                  └── Applications
+            └── Matches ↔ Opportunities (global, deduplicated)
+                              └── Application (at most one)
                         ├── ApplicationPackage
                         ├── BrowserRuns
                         ├── Interventions
@@ -2698,6 +2693,8 @@ Opportunity
 should likely be many-to-many.
 
 The Application should record which Hunt ultimately drove the application.
+
+Resolved: the relationship is the **Match**. The **Driving Hunt** is the highest-fit Match that wants to apply, fixed when the Application is created. A Skip from one Hunt never vetoes another Hunt's decision to apply. The Application keeps a frozen copy of the evaluation and policy that authorized it.
 
 ---
 
