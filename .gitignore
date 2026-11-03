@@ -1,0 +1,30 @@
+# Skills are installed into .agents/skills (tracked via skills-lock.json);
+# .claude/skills holds machine-specific symlinks back to them
+.claude/skills/
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.next/
+coverage/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs and OS/editor cruft
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
