@@ -48,6 +48,10 @@ _Avoid_: Bundle, materials
 One attempt by the agent at the employer's site on behalf of an Application. An Application may have several.
 _Avoid_: Attempt, session, execution
 
+**Dry Run**:
+A Browser Run that fills in the whole application exactly as it would for real, then stops before final submission and keeps evidence of what would have been sent. It never submits, and an Application that has passed one is not run again until it is switched to live or a rerun is asked for.
+_Avoid_: Test run, simulation, preview
+
 **Submitted**:
 An Application whose final submission the employer's site has confirmed. This is the success event that counts.
 _Avoid_: Applied, sent, done
@@ -111,6 +115,10 @@ _Avoid_: Needs You item, error, blocker, escalation
 **Needs You**:
 The queue of open Interventions.
 _Avoid_: Inbox, error log
+
+**Hold**:
+An automatic, temporary pause of only the work that depends on one shared thing that is failing or used up, such as an AI provider key, one employer's site, or a spending cap. It lifts by itself once the cause clears, and it is never an Intervention.
+_Avoid_: Block, outage, global error
 
 **Review**:
 The Candidate's approval of what the employer will actually receive, just before final submission. It happens only when a Hunt's Review rule explicitly asks for it. An Application is not stuck while it is in Review.
