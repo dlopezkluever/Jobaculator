@@ -147,3 +147,7 @@ _Avoid_: Block, outage, global error
 **Review**:
 The Candidate's approval of what the employer will actually receive, just before final submission. It happens only when a Hunt's Review rule explicitly asks for it. An Application is not stuck while it is in Review.
 _Avoid_: Approval, Intervention
+
+**Mailbox Connection**:
+The Candidate's optional, sealed link to the inbox their application email arrives in, which lets the agent read emailed verification codes without bothering the Candidate. Without one, such a code becomes an Intervention.
+_Avoid_: Email integration, inbox access
