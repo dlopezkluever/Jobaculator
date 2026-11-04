@@ -44,6 +44,10 @@ _Avoid_: Owning Hunt, primary Hunt
 Everything an Application sends to the employer (job snapshot, tailored resume, cover letter, answers, files). It can change until final submission and is frozen at that moment.
 _Avoid_: Bundle, materials
 
+**Job Snapshot**:
+The posting as it read when its Application was prepared, kept unchanged with the Application even if the posting later changes or disappears.
+_Avoid_: Cached posting, job copy
+
 **Browser Run**:
 One attempt by the agent at the employer's site on behalf of an Application. An Application may have several.
 _Avoid_: Attempt, session, execution
