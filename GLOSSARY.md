@@ -136,6 +136,10 @@ _Avoid_: Needs You item, error, blocker, escalation
 The queue of open Interventions.
 _Avoid_: Inbox, error log
 
+**Takeover**:
+The Candidate's live, hands-on session in the employer's site to clear an Intervention, such as a CAPTCHA or a login. The Candidate could submit during it, so it is treated as a possible submission until reconciled.
+_Avoid_: Remote control, handoff, manual mode
+
 **Hold**:
 An automatic, temporary pause of only the work that depends on one shared thing that is failing or used up, such as an AI provider key, one employer's site, or a spending cap. It lifts by itself once the cause clears, and it is never an Intervention.
 _Avoid_: Block, outage, global error
