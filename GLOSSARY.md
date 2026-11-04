@@ -26,6 +26,22 @@ _Avoid_: Profile variant, persona, angle
 One real job posting, normalized and deduplicated across every source and Hunt that found it. It describes the posting only, never a Hunt's judgement of it.
 _Avoid_: Job, posting, listing, lead
 
+**Employer**:
+The organisation a posting is for, recognised by reliable evidence such as its own domain or its Boards, never by a similar name alone. A User can exclude an Employer outright.
+_Avoid_: Company, organisation, hiring company
+
+**Source**:
+A kind of place job postings are discovered from, such as one ATS's public job boards, or a posting link the Candidate pastes in.
+_Avoid_: Feed, provider, integration
+
+**Board**:
+One employer's list of open postings on one Source. Discovery watches Boards on the User's behalf, and every active Hunt judges what they list.
+_Avoid_: Careers page, tenant, company
+
+**Sighting**:
+One place an Opportunity is listed: a specific post, with its own link and location. An Opportunity has one or more, and its Application goes through exactly one.
+_Avoid_: Listing, post, duplicate
+
 **Match**:
 One Hunt's judgement of one Opportunity: whether it qualifies, how well it fits, and what the Hunt's policy decides to do about it.
 _Avoid_: Evaluation, score, Hunt-Opportunity
