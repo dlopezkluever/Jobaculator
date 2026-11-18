@@ -1,0 +1,12 @@
+{
+  "name": "greenhouse-dry-run",
+  "version": "1.0.0",
+  "scripts": {
+    "spike": "node spike.mjs"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "playwright": "^1.65.1"
+  },
+  "private": "true"
+}
