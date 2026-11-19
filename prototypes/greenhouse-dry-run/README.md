@@ -25,6 +25,20 @@ Optional LLM answers for questions the rules cannot answer (measures LLM cost): 
 Job ids go stale as postings close. Pick a fresh one with
 `curl -s https://boards-api.greenhouse.io/v1/boards/figma/jobs | jq '.jobs[0].id'`.
 
+## Results from the Phase 0 VPS (2026-11-19)
+
+Host: Hetzner Cloud CX23 `aiuteur-staging-1`, Helsinki, EU datacenter IP 2.29.153.28, 2 vCPU / 3.8 GB, Ubuntu 26.04, Node 22.
+
+| Run | Fields | Result | Time | Memory used (MemAvailable drop) |
+|---|---|---|---|---|
+| figma 5426468004 headless | 19 | all filled, verified, stopped before submit | 32 s | 325 MB |
+| discord 8927168002 headless | 26 | same | 38 s | 316 MB |
+| cloudflare 7695702 headless | 16 | same | 27 s | 294 MB |
+| figma headful (Xvfb) ×3 | 19 | same | 34 s | 384–447 MB |
+| discord headful (Xvfb) | 26 | same | 41 s | 405 MB |
+
+No block, no visible challenge, and no blocked writes on any run from the EU Hetzner range. Discord's three required selects that the rules could not answer ("located in the US?", "Bay Area relocation", "Race and Ethnicity") took the first option. A real run answers them through generation, and the demographic one should decline.
+
 ## Results from the Amp orb (2026-11-18)
 
 Host: E2B sandbox on a Google Cloud US IP, 2 vCPU / 3.9 GB RAM, roughly the CX23 shape. Not the VPS.
