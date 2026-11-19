@@ -1,0 +1,330 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway, never merged. Answers wayfinder ticket #30 (Dashboard information architecture).
+  Three structurally different dashboard IAs, switchable with ?variant=A|B|C (bottom bar or ← →),
+  three data scenarios with ?scenario=steady|firstday|badday. Screens are hash routes (#/home, #/needs-you, ...).
+  No build, no deps: open this file in a browser. All data is fake and in memory; buttons only mutate memory.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE · Jobaculator dashboard IA</title>
+<style>
+  :root { --bg:#fafafa; --card:#fff; --fg:#18181b; --mut:#71717a; --line:#e4e4e7; --soft:#f4f4f5;
+    --pri:#18181b; --ok:#15803d; --okbg:#dcfce7; --warn:#a16207; --warnbg:#fef9c3; --bad:#b91c1c; --badbg:#fee2e2; --info:#1d4ed8; --infobg:#dbeafe; --vio:#6d28d9; --viobg:#ede9fe; }
+  * { box-sizing:border-box } body { margin:0; font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--fg); background:var(--bg) }
+  a { color:inherit } button { font:inherit; cursor:pointer }
+  h1 { font-size:22px; margin:0 0 4px } h2 { font-size:16px; margin:0 0 10px } h3 { font-size:14px; margin:0 0 6px }
+  .mut { color:var(--mut) } .sm { font-size:12px } .xs { font-size:11px } .b { font-weight:600 } .num { font-variant-numeric:tabular-nums }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px }
+  .row { display:flex; gap:12px; align-items:center } .col { display:flex; flex-direction:column; gap:12px } .wrap { flex-wrap:wrap }
+  .grow { flex:1 } .sp { justify-content:space-between } .g8 { gap:8px } .g16 { gap:16px } .g24 { gap:24px }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px } .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px } .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:12px }
+  .btn { border:1px solid var(--line); background:#fff; border-radius:8px; padding:6px 12px; font-size:13px }
+  .btn.pri { background:var(--pri); color:#fff; border-color:var(--pri) } .btn.dan { color:var(--bad) } .btn.sm { padding:3px 9px; font-size:12px }
+  .pill { display:inline-flex; align-items:center; gap:4px; border-radius:999px; padding:1px 8px; font-size:11.5px; font-weight:600; background:var(--soft); color:var(--mut); white-space:nowrap }
+  .pill.ok { background:var(--okbg); color:var(--ok) } .pill.warn { background:var(--warnbg); color:var(--warn) } .pill.bad { background:var(--badbg); color:var(--bad) } .pill.info { background:var(--infobg); color:var(--info) } .pill.vio { background:var(--viobg); color:var(--vio) }
+  .dot { width:8px; height:8px; border-radius:50%; display:inline-block } .dot.ok { background:#22c55e } .dot.warn { background:#eab308 } .dot.bad { background:#ef4444 } .dot.off { background:#a1a1aa }
+  .badge { min-width:18px; height:18px; border-radius:9px; background:var(--bad); color:#fff; font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; padding:0 5px }
+  .badge.vio { background:var(--vio) } .badge.warn { background:#ca8a04 } .badge.gray { background:#a1a1aa }
+  table { width:100%; border-collapse:collapse } th { text-align:left; font-size:12px; color:var(--mut); font-weight:500; padding:6px 8px; border-bottom:1px solid var(--line) } td { padding:8px; border-bottom:1px solid var(--soft); vertical-align:top }
+  tr.click:hover td { background:var(--soft); cursor:pointer }
+  .banner { border-radius:10px; padding:10px 14px; display:flex; gap:12px; align-items:center; font-size:13px }
+  .banner.dry { background:#ede9fe; color:#4c1d95 } .banner.hold { background:var(--warnbg); color:#713f12 } .banner.bad { background:var(--badbg); color:#7f1d1d }
+  .big { font-size:44px; font-weight:700; line-height:1; letter-spacing:-.02em } .mid { font-size:26px; font-weight:700; line-height:1.1 }
+  .bar { height:8px; border-radius:4px; background:var(--soft); overflow:hidden } .bar > i { display:block; height:100%; background:var(--fg) }
+  input, textarea, select { font:inherit; border:1px solid var(--line); border-radius:8px; padding:6px 10px; background:#fff }
+  .tabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:16px } .tabs a { padding:8px 12px; text-decoration:none; color:var(--mut); border-bottom:2px solid transparent; font-size:13px } .tabs a.on { color:var(--fg); border-color:var(--fg); font-weight:600 }
+  .main { padding:24px 28px 90px; max-width:1180px }
+  .placeholder { border:1px dashed #d4d4d8; border-radius:8px; padding:12px; color:var(--mut); font-size:12px; background:repeating-linear-gradient(45deg,#fafafa,#fafafa 6px,#f4f4f5 6px,#f4f4f5 12px) }
+  /* shells */
+  .shellA { display:grid; grid-template-columns:220px 1fr; min-height:100vh }
+  .sideA { border-right:1px solid var(--line); background:#fff; padding:16px 10px; display:flex; flex-direction:column; gap:2px; position:sticky; top:0; height:100vh }
+  .sideA a { display:flex; align-items:center; justify-content:space-between; text-decoration:none; padding:7px 10px; border-radius:8px; color:#3f3f46 } .sideA a.on { background:var(--soft); color:var(--fg); font-weight:600 }
+  .logo { font-weight:800; letter-spacing:-.02em; padding:4px 10px 14px; font-size:16px }
+  .topB { background:#fff; border-bottom:1px solid var(--line); padding:0 24px; display:flex; align-items:center; gap:20px; height:54px; position:sticky; top:0; z-index:5 }
+  .topB a.nav { text-decoration:none; color:#52525b; padding:16px 2px; border-bottom:2px solid transparent; display:inline-flex; gap:6px; align-items:center } .topB a.nav.on { color:var(--fg); border-color:var(--fg); font-weight:600 }
+  .shellC { display:grid; grid-template-columns:260px 1fr; min-height:100vh }
+  .sideC { background:#18181b; color:#e4e4e7; padding:16px 12px; display:flex; flex-direction:column; gap:4px; position:sticky; top:0; height:100vh }
+  .sideC a { text-decoration:none; color:#d4d4d8; padding:8px 10px; border-radius:8px; display:block } .sideC a.on { background:#27272a; color:#fff } .sideC .lbl { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#71717a; padding:12px 10px 4px }
+  .lane { display:grid; grid-template-columns:repeat(6,1fr); gap:6px } .stage { background:var(--soft); border-radius:8px; padding:8px 10px } .stage .n { font-size:20px; font-weight:700 } .stage.hl { background:#dcfce7 }
+  .feed li { padding:6px 0; border-bottom:1px solid var(--soft); list-style:none; display:flex; gap:10px } .feed { padding:0; margin:0 }
+  .item { display:grid; grid-template-columns:28px 1fr auto; gap:12px; padding:14px 0; border-bottom:1px solid var(--soft); align-items:start }
+  .ico { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700 }
+  .chat .q { background:var(--soft); border-radius:10px; padding:8px 12px; max-width:80% } .chat .a { background:#18181b; color:#fff; border-radius:10px; padding:8px 12px; max-width:80%; align-self:flex-end }
+  /* switcher */
+  #proto { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#0a0a0a; color:#fff; border-radius:999px; padding:6px 8px; display:flex; gap:8px; align-items:center; box-shadow:0 8px 30px rgba(0,0,0,.35); z-index:99; font-size:12.5px }
+  #proto button { background:#27272a; color:#fff; border:0; border-radius:999px; width:30px; height:30px } #proto select { background:#27272a; color:#fff; border:0; border-radius:999px; padding:5px 10px; font-size:12px }
+  #proto .lab { min-width:210px; text-align:center; font-weight:600 }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="proto">
+  <button id="prev" title="Previous variant (←)">←</button><span class="lab" id="vlab"></span><button id="next" title="Next variant (→)">→</button>
+  <select id="scen" title="Data scenario"><option value="steady">Scenario: steady state</option><option value="firstday">Scenario: first day</option><option value="badday">Scenario: bad day</option></select>
+  <span class="xs" style="color:#a1a1aa;padding-right:8px" id="state"></span>
+</div>
+<script>
+// ---------- fake data ----------
+const HUNTS = {
+  ai: { id:'ai', name:'AI / Software Engineering', active:true, latitude:'Aggressive', review:'Review when Fit ≥ 90', cap:'None', boards:42,
+    lastDisc:'4 min ago', lastSub:'11 min ago', queue:37, rate:'19.4/day',
+    today:{ discovered:71, qualified:27, queued:37, preparing:2, browser:1, submitted:18, review:3, needs:2 }, all:{ submitted:301 } },
+  devrel: { id:'devrel', name:'Developer Relations', active:true, latitude:'Conservative', review:'No Review rule', cap:'15 / day', boards:18,
+    lastDisc:'9 min ago', lastSub:'2 h ago', queue:9, rate:'6.1/day',
+    today:{ discovered:22, qualified:8, queued:9, preparing:0, browser:0, submitted:4, review:0, needs:1 }, all:{ submitted:88 } },
+  se: { id:'se', name:'Solutions Engineering', active:false, latitude:'Aggressive', review:'Review when Fit ≥ 95', cap:'None', boards:31,
+    lastDisc:'—', lastSub:'3 d ago', queue:12, rate:'—',
+    today:{ discovered:0, qualified:0, queued:12, preparing:0, browser:0, submitted:0, review:0, needs:0 }, all:{ submitted:47 } },
+};
+const NEEDS = [
+  { id:'n1', app:'a7', emp:'Ford', role:'Mechanical Systems Engineer', hunt:'ai', code:'CAPTCHA', ico:'⌗', title:'CAPTCHA at final page', detail:'Filled 23/23 fields. A visual CAPTCHA appeared before submit.', act:'Take over', age:'12 min' },
+  { id:'n2', app:'a8', emp:'Stripe', role:'Solutions Engineer', hunt:'devrel', code:'AUTHORITATIVE_FACT_REQUIRED', ico:'?', title:'Missing answer: “When can you start?”', detail:'Required. No start date in your Knowledge Base, and only you can commit to one.', act:'Answer', age:'40 min', ask:true },
+  { id:'n3', app:'a9', emp:'Datadog', role:'AI Engineer', hunt:'ai', code:'ASSESSMENT_REQUIRED', ico:'✎', title:'Coding assessment required', detail:'HackerRank link, 90 min, due in 6 days.', act:'Open assessment', age:'3 h' },
+  { id:'n4', app:'a10', emp:'NBC Universal', role:'Developer Advocate', hunt:'devrel', code:'DOCUMENT_REQUIRED', ico:'⇪', title:'Portfolio PDF required', detail:'No document in your Candidate matches “portfolio”.', act:'Upload', age:'5 h' },
+];
+const UNCERTAIN = [ { id:'u1', app:'a11', emp:'Ramp', role:'Senior Backend Engineer', hunt:'ai', when:'Today 14:02', detail:'Submit was clicked; the page then timed out and no confirmation was seen. Never retried automatically.' } ];
+const REVIEW = [
+  { id:'r1', app:'a1', emp:'OpenAI', role:'AI Engineer, Applied', hunt:'ai', fit:97, resume:'Ready', cover:'Ready', qs:'12/12' },
+  { id:'r2', app:'a2', emp:'Anthropic', role:'Software Engineer, Product', hunt:'ai', fit:95, resume:'Ready', cover:'Ready', qs:'9/9' },
+  { id:'r3', app:'a3', emp:'Vercel', role:'Senior Engineer, AI SDK', hunt:'ai', fit:91, resume:'Ready', cover:'No slot', qs:'6/6' },
+];
+const RECENT = [
+  { app:'a4', emp:'Figma', role:'Software Engineer, AI', hunt:'ai', fit:88, when:'11 min ago', via:'Greenhouse adapter' },
+  { app:'a5', emp:'Discord', role:'Backend Engineer', hunt:'ai', fit:74, when:'26 min ago', via:'Greenhouse adapter' },
+  { app:'a6', emp:'Cloudflare', role:'Developer Advocate', hunt:'devrel', fit:81, when:'2 h ago', via:'General agent (Lever)' },
+  { app:'a12', emp:'Notion', role:'AI Engineer', hunt:'ai', fit:83, when:'2 h ago', via:'Greenhouse adapter' },
+  { app:'a13', emp:'Linear', role:'Product Engineer', hunt:'ai', fit:79, when:'3 h ago', via:'General agent (Ashby)' },
+];
+const SCEN = {
+  steady: { mode:'live', holds:[], health:{ ai:['HEALTHY','Discovering and submitting normally'], devrel:['DEGRADED','2 of 3 Greenhouse runs timed out today; site Hold on boards.greenhouse.io lifted 40 min ago'], se:['PAUSED','Paused by you'] },
+    sub:{ today:22, week:131, all:436 }, inflight:{ queued:58, preparing:2, browser:1 }, needs:NEEDS, uncertain:UNCERTAIN, review:REVIEW, recent:RECENT, onboarding:false, enriched:72 },
+  firstday: { mode:'dry', holds:[{ scope:'Candidate', text:'Add your contact details (name and email). Preparing Applications is paused until then.', act:'Add contact details' }],
+    health:{ ai:['HEALTHY','First discovery pass: 42 Boards polled'] }, hunts:['ai'], sub:{ today:0, week:0, all:0 }, inflight:{ queued:14, preparing:0, browser:0 },
+    ov:{ ai:{ lastDisc:'6 min ago', lastSub:'—', rate:'—', queue:14, today:{ discovered:42, qualified:14, queued:14, preparing:0, browser:0, submitted:0, review:0, needs:0 } } },
+    feed:[['09:31','Dry Run','Discord · Backend Engineer: 19 fields, 1 file, stopped before submit','vio'],['09:24','Dry Run','Figma · Software Engineer, AI: 23 fields, 2 files, stopped before submit','vio'],['09:12','Hold','Candidate: contact details missing','warn'],['09:05','Discovered','Greenhouse · 42 Boards polled, 312 postings, 14 qualified','']],
+    needs:[], uncertain:[], review:[], recent:[], onboarding:true, enriched:8, dry:[ { emp:'Figma', role:'Software Engineer, AI', fit:88, when:'8 min ago' }, { emp:'Discord', role:'Backend Engineer', fit:74, when:'20 min ago' } ] },
+  badday: { mode:'live', holds:[ { scope:'AI provider', text:'Anthropic key rejected (401). Preparation and Browser Runs that need it are on Hold; nothing else is affected.', act:'Update key' }, { scope:'Employer site', text:'jobs.ashbyhq.com timing out. 4 Applications waiting; retrying every 15 min.', act:'' } ],
+    health:{ ai:['STALLED','41 Applications ready, none prepared in 6 h: blocked by the Anthropic key Hold'], devrel:['DEGRADED','Ashby site Hold (4 waiting)'], se:['PAUSED','Paused by you'] },
+    sub:{ today:3, week:96, all:417 }, inflight:{ queued:63, preparing:0, browser:0 },
+    ov:{ ai:{ lastSub:'6 h ago', rate:'19.4/day', queue:41, today:{ discovered:64, qualified:24, queued:41, preparing:0, browser:0, submitted:3, review:1, needs:4 } }, devrel:{ queue:13, today:{ discovered:20, qualified:7, queued:13, preparing:0, browser:0, submitted:0, review:0, needs:1 } } },
+    feed:[['14:20','Hold','AI provider: Anthropic key rejected (401)','warn'],['14:20','Stalled','AI / Software Engineering: nothing prepared in 6 h','bad'],['13:40','Hold','Employer site: jobs.ashbyhq.com timing out','warn'],['09:40','Uncertain','Brex · confirmation page did not load after Takeover','warn'],['08:12','Submitted','Figma · Software Engineer, AI','ok']], needs:NEEDS.concat([{ id:'n5', app:'a14', emp:'Plaid', role:'AI Engineer', hunt:'ai', code:'AUTH_REQUIRED', ico:'⚿', title:'Login wall', detail:'This employer requires an account. Register or sign in once; the login is kept for later runs.', act:'Take over', age:'1 h' }]),
+    uncertain:UNCERTAIN.concat([{ id:'u2', app:'a15', emp:'Brex', role:'Software Engineer', hunt:'ai', when:'Today 09:40', detail:'Submit clicked during your Takeover; confirmation page did not load.' }]), review:REVIEW.slice(0,1), recent:RECENT.slice(0,2), onboarding:false, enriched:72 },
+};
+const APP = { id:'a1', emp:'OpenAI', role:'AI Engineer, Applied', hunt:'ai', alsoHunts:['devrel'], fit:97, status:'Ready for Review', date:'Today 10:12', loc:'San Francisco, CA (hybrid)', pay:'$210k – $310k (stated)', posted:'2 days ago',
+  match:[ ['Role','IDEAL','“AI Engineer” matches target role family'], ['Location','GOOD','San Francisco: preferred city'], ['Pay','IDEAL','Top of range above your $200k ideal'], ['Seniority','GOOD','Inferred senior from requirements (5+ yrs)'], ['Requirements','QUALIFIED','5 yrs required, you have 7'] ],
+  decisive:'Review rule: Fit ≥ 90 on AI / Software Engineering',
+  themes:['Production LLM systems','Evaluation rigour','Cost and latency at scale'],
+  answers:[ ['Are you legally authorized to work in the US?','Yes','AUTHORITATIVE','Fact: work authorization'], ['Will you require sponsorship?','No','AUTHORITATIVE','Fact: sponsorship'], ['Why OpenAI?','I have spent two years making LLM features dependable in production…','PERSUASIVE','f_101 f_103'], ['Desired salary','$230,000','PREFERENCE','Hunt Commitment: pay'], ['Gender (optional)','Decline to self-identify','OPTIONAL_DISCLOSURE','Answer Policy: EEO'] ],
+  timeline:[ ['10:02','Match','Qualified · Fit 97 · decision Review (Review rule)'], ['10:03','Prepare','Strategy, resume, 12 answers generated · $0.21'], ['10:06','Browser Run 1','Greenhouse adapter · Dry Run to Review · 23 fields filled, 2 files uploaded · 34 s · $0.04'], ['10:06','Review','Waiting for you · nothing is stuck'] ] };
+
+// ---------- state & routing ----------
+const VARIANTS = { A:'Scoreboard + sidebar (PRD nav)', B:'Inbox-first + top bar', C:'Hunt lanes + Hunt rail' };
+const qs = new URLSearchParams(location.search);
+let V = VARIANTS[qs.get('variant')] ? qs.get('variant') : 'A';
+let S = SCEN[qs.get('scenario')] ? qs.get('scenario') : 'steady';
+const local = { answered:{}, resolved:{} };
+const D = () => SCEN[S];
+const hunts = () => (D().hunts || Object.keys(HUNTS)).map(k => ({ ...HUNTS[k], ...(D().ov?.[k] || {}) }));
+const needs = () => D().needs.filter(n => !local.resolved[n.id]);
+const unc = () => D().uncertain.filter(n => !local.resolved[n.id]);
+const route = () => (location.hash.replace(/^#\/?/, '') || 'home').split('/');
+function setQS() { const p = new URLSearchParams(location.search); p.set('variant', V); p.set('scenario', S); try { history.replaceState(null, '', '?' + p + location.hash); } catch {} render(); }
+
+const hpill = s => { const c = { HEALTHY:'ok', DEGRADED:'warn', STALLED:'bad', PAUSED:'' }[s]; return `<span class="pill ${c}">${s}</span>`; };
+const hdot = s => `<span class="dot ${{ HEALTHY:'ok', DEGRADED:'warn', STALLED:'bad', PAUSED:'off' }[s]}"></span>`;
+const fitp = f => `<span class="pill ${f >= 80 ? 'ok' : 'info'} num">Fit ${f}</span>`;
+const H = id => HUNTS[id]?.name || id;
+const badges = () => ({ needs:needs().length, review:D().review.length, unc:unc().length, holds:D().holds.length, stalled:Object.values(D().health).filter(h => h[0] === 'STALLED').length });
+
+function banners() {
+  let s = '';
+  if (D().mode === 'dry') s += `<div class="banner dry"><b>Dry Run mode.</b><span class="grow">Every Browser Run fills the whole application and stops before submit. Nothing is sent to employers until you switch to live.</span><a class="btn sm" href="#/settings">Go live…</a></div>`;
+  for (const h of D().holds) s += `<div class="banner hold"><b>Hold · ${h.scope}</b><span class="grow">${h.text}</span>${h.act ? `<button class="btn sm">${h.act}</button>` : '<span class="xs">lifts by itself</span>'}</div>`;
+  return s ? `<div class="col g8" style="margin-bottom:16px">${s}</div>` : '';
+}
+
+// ---------- shells ----------
+function shellA(body, r) {
+  const b = badges(), on = k => r[0] === k ? 'on' : '';
+  const nav = [['home','Dashboard'],['hunts','Hunts'],['applications','Applications'],['needs-you','Needs You', b.needs ? `<span class="badge">${b.needs}</span>` : ''],['review','Ready for Review', b.review ? `<span class="badge vio">${b.review}</span>` : ''],['candidate','Candidate', D().onboarding ? '<span class="badge gray">4</span>' : ''],['settings','Settings']];
+  return `<div class="shellA"><nav class="sideA"><div class="logo">Jobaculator</div>${nav.map(([k,l,x='']) => `<a href="#/${k}" class="${on(k)}"><span>${l}</span>${x}</a>`).join('')}
+    <div class="grow"></div><div class="card sm" style="padding:10px"><div class="row g8">${D().mode === 'dry' ? '<span class="pill vio">DRY RUN</span>' : '<span class="pill ok">LIVE</span>'}<span class="mut xs">worker ok · 1 browser</span></div></div></nav>
+    <main class="main">${banners()}${body}</main></div>`;
+}
+function shellB(body, r) {
+  const b = badges(), inbox = b.needs + b.review + b.unc, on = k => r[0] === k || (k === 'home' && ['needs-you','review'].includes(r[0])) ? 'on' : '';
+  return `<header class="topB"><b style="font-size:16px">Jobaculator</b>
+    <a class="nav ${on('home')}" href="#/home">Inbox ${inbox ? `<span class="badge">${inbox}</span>` : ''}</a>
+    <a class="nav ${on('activity')}" href="#/activity">Activity</a><a class="nav ${on('hunts')}" href="#/hunts">Hunts</a><a class="nav ${on('applications')}" href="#/applications">Applications</a><a class="nav ${on('candidate')}" href="#/candidate">Candidate</a>
+    <span class="grow"></span><span class="sm mut num">Submitted today <b style="color:var(--fg)">${D().sub.today}</b> · week <b style="color:var(--fg)">${D().sub.week}</b></span>
+    ${D().mode === 'dry' ? '<span class="pill vio">DRY RUN</span>' : '<span class="pill ok">LIVE</span>'}<a class="nav ${on('settings')}" href="#/settings">⚙</a></header>
+    <main class="main" style="margin:0 auto">${banners()}${body}</main>`;
+}
+function shellC(body, r) {
+  const b = badges(), on = k => r.join('/') === k ? 'on' : '';
+  return `<div class="shellC"><nav class="sideC"><div class="logo" style="color:#fff">Jobaculator</div>
+    <a href="#/home" class="${on('home')}">Overview</a>
+    <div class="lbl">Hunts</div>${hunts().map(h => `<a href="#/hunt/${h.id}" class="${on('hunt/' + h.id)}"><div class="row g8">${hdot(D().health[h.id][0])}<span class="grow">${h.name}</span><span class="xs num" style="color:#a1a1aa">${h.today.submitted}</span></div></a>`).join('')}
+    <a href="#/hunt-new" style="color:#a1a1aa">+ New Hunt</a>
+    <div class="lbl">Waiting on you</div>
+    <a href="#/needs-you" class="${on('needs-you')}"><div class="row sp">Needs You ${b.needs ? `<span class="badge">${b.needs}</span>` : ''}</div></a>
+    <a href="#/review" class="${on('review')}"><div class="row sp">Ready for Review ${b.review ? `<span class="badge vio">${b.review}</span>` : ''}</div></a>
+    <div class="lbl">Everything else</div><a href="#/applications" class="${on('applications')}">Applications</a><a href="#/candidate" class="${on('candidate')}">Candidate</a><a href="#/settings" class="${on('settings')}">Settings</a>
+    <div class="grow"></div><div class="xs" style="color:#71717a;padding:0 10px">${D().mode === 'dry' ? 'DRY RUN' : 'LIVE'} · worker ok</div></nav>
+    <main class="main">${banners()}${body}</main></div>`;
+}
+
+// ---------- homes ----------
+function onboardingCard() {
+  if (!D().onboarding) return '';
+  return `<div class="card"><div class="row sp"><h2>Getting started</h2><span class="xs mut">Any order. Nothing here blocks a Hunt.</span></div>
+    <div class="grid4">${[['Upload documents','Resume, LinkedIn PDF, anything','Upload'],['Standing answers','Sponsorship, work authorization, EEO','Set answers'],['Optional interview','15–30 min chat to deepen your profile','Start'],['Create a Hunt','✓ AI / Software Engineering','Add another']].map(([t,d,a],i) => `<div class="card" style="padding:12px;${i===3?'background:#f0fdf4':''}"><div class="b">${i===3?'✓ ':''}${t}</div><div class="xs mut" style="margin:4px 0 8px">${d}</div><button class="btn sm">${a}</button></div>`).join('')}</div>
+    <div class="row g8 sm" style="margin-top:12px"><span class="mut">No documents?</span><a href="#/candidate">Fill in “About you” (name, email, phone, location)</a></div></div>`;
+}
+function homeA() {
+  const d = D(), b = badges();
+  const att = [['Needs You', b.needs, 'bad', '#/needs-you', 'Interventions blocking an Application'], ['Ready for Review', b.review, 'vio', '#/review', 'Filled, waiting for your approval'], ['Uncertain Submissions', b.unc, 'warn', '#/needs-you', 'Did it go through? Never retried'], ['Holds', b.holds, 'warn', '#/settings', 'Shared blockers, lift by themselves']];
+  return `${onboardingCard()}
+  <div class="row g16" style="align-items:stretch;margin:16px 0">
+    <div class="card" style="flex:1.2"><div class="mut sm">Submitted today (confirmed)</div><div class="row g24" style="align-items:flex-end;margin-top:6px"><div class="big num">${d.sub.today}</div><div><div class="mid num">${d.sub.week}</div><div class="xs mut">this week</div></div><div><div class="mid num">${d.sub.all}</div><div class="xs mut">all time</div></div></div>
+      <div class="row g16 sm mut num" style="margin-top:14px">In flight: <span><b style="color:var(--fg)">${d.inflight.queued}</b> queued</span><span><b style="color:var(--fg)">${d.inflight.preparing}</b> preparing</span><span><b style="color:var(--fg)">${d.inflight.browser}</b> in browser</span></div>
+      ${d.mode === 'dry' ? `<div class="sm" style="margin-top:10px"><span class="pill vio">${d.dry.length} Dry Runs completed</span> <span class="xs mut">not counted as Submitted</span></div>` : ''}</div>
+    <div class="grid2" style="flex:1">${att.map(([l,n,c,h,s]) => `<a href="${h}" class="card" style="text-decoration:none;padding:12px;${n ? '' : 'opacity:.55'}"><div class="row sp"><span class="sm b">${l}</span>${n ? `<span class="badge ${c === 'bad' ? '' : c}">${n}</span>` : '<span class="xs mut">0</span>'}</div><div class="xs mut" style="margin-top:4px">${s}</div></a>`).join('')}</div>
+  </div>
+  <div class="card" style="margin-bottom:16px"><div class="row sp"><h2>Hunts</h2><a class="btn sm" href="#/hunt-new">+ New Hunt</a></div>
+    <table><tr><th>Hunt</th><th>Health</th><th>Today</th><th>Queue</th><th>Last discovery</th><th>Last submitted</th><th>Rate</th></tr>
+    ${hunts().map(h => { const [st, why] = d.health[h.id]; return `<tr class="click" onclick="location.hash='#/hunt/${h.id}'"><td class="b">${h.name}</td><td>${hpill(st)}<div class="xs mut" style="max-width:260px;margin-top:3px">${why}</div></td><td class="num">${h.today.submitted} submitted · ${h.today.qualified} qualified</td><td class="num">${h.queue}</td><td>${h.lastDisc}</td><td>${h.lastSub}</td><td class="num">${h.rate}</td></tr>`; }).join('')}</table></div>
+  <div class="card"><h2>Recent submissions</h2>${d.recent.length ? `<table>${d.recent.map(x => `<tr class="click" onclick="location.hash='#/app/${x.app}'"><td class="b">${x.emp}</td><td>${x.role}</td><td>${fitp(x.fit)}</td><td class="mut">${H(x.hunt)}</td><td class="mut sm">${x.via}</td><td class="mut">${x.when}</td></tr>`).join('')}</table>` : `<div class="mut sm">No confirmed submissions yet.${d.mode === 'dry' ? ' Dry Runs: ' + d.dry.map(x => `${x.emp} (${x.role})`).join(', ') : ''}</div>`}</div>`;
+}
+function inboxItems() {
+  const items = [];
+  for (const u of unc()) items.push({ k:'u', id:u.id, ico:'!', c:'warn', head:`${u.emp} · ${u.role}`, title:'Uncertain Submission: did it go through?', detail:`${u.when}. ${u.detail}`, acts:`<button class="btn sm pri" onclick="resolve('${u.id}')">It went through</button> <button class="btn sm" onclick="resolve('${u.id}')">It didn’t</button> <a class="btn sm" href="#/app/${u.app}">Evidence</a>` });
+  for (const n of needs()) items.push({ k:'n', id:n.id, ico:n.ico, c:'bad', head:`${n.emp} · ${n.role}`, title:n.title, detail:n.detail + ` <span class="mut">· ${H(n.hunt)} · ${n.age}</span>`,
+    acts: n.ask ? `<div class="row g8"><input placeholder="e.g. 2 weeks’ notice" style="width:170px" id="in-${n.id}"><button class="btn sm pri" onclick="resolve('${n.id}')">Save &amp; continue</button></div><div class="xs mut" style="margin-top:4px">Saved to your Candidate for future applications</div>` : `<button class="btn sm pri" onclick="resolve('${n.id}')">${n.act}</button> <button class="btn sm" onclick="resolve('${n.id}')">Not interested</button>` });
+  for (const r of D().review) items.push({ k:'r', id:r.id, ico:'★', c:'vio', head:`${r.emp} · ${r.role}`, title:`Ready for Review · Fit ${r.fit}`, detail:`Resume ${r.resume} · Cover letter ${r.cover} · Questions ${r.qs}`, acts:`<a class="btn sm pri" href="#/app/${r.app}/review">Review &amp; submit</a>` });
+  return items;
+}
+function homeB() {
+  const d = D(), items = inboxItems();
+  const bg = { bad:'var(--badbg)', warn:'var(--warnbg)', vio:'var(--viobg)' }, fg = { bad:'var(--bad)', warn:'var(--warn)', vio:'var(--vio)' };
+  return `${onboardingCard()}<div style="display:grid;grid-template-columns:1fr 300px;gap:20px;margin-top:${d.onboarding ? 16 : 0}px">
+    <div class="card"><div class="row sp"><h2 style="margin:0">Inbox</h2><span class="xs mut">Uncertain first, then Needs You, then Review</span></div>
+      ${items.length ? items.map(i => `<div class="item"><div class="ico" style="background:${bg[i.c]};color:${fg[i.c]}">${i.ico}</div><div><div class="xs mut">${i.head}</div><div class="b">${i.title}</div><div class="sm" style="margin-top:2px">${i.detail}</div></div><div style="text-align:right">${i.acts}</div></div>`).join('')
+        : `<div style="padding:40px;text-align:center"><div class="mid">Nothing needs you</div><div class="mut sm" style="margin-top:6px">The machine is working. ${d.inflight.queued} queued, ${d.inflight.preparing + d.inflight.browser} in progress.</div></div>`}</div>
+    <div class="col">
+      <div class="card"><div class="mut sm">Submitted today</div><div class="big num">${d.sub.today}</div><div class="bar" style="margin:10px 0 4px"><i style="width:${Math.min(100, d.sub.today / 25 * 100)}%"></i></div><div class="xs mut num">${d.sub.week} this week · ${d.inflight.queued} queued</div></div>
+      <div class="card"><h3>Hunts</h3>${hunts().map(h => `<a href="#/hunt/${h.id}" class="row g8" style="text-decoration:none;padding:6px 0">${hdot(d.health[h.id][0])}<span class="grow sm">${h.name}</span><span class="num sm">${h.today.submitted}</span></a>`).join('')}</div>
+      <div class="card"><h3>Questions for you</h3><div class="sm col g8"><div>What’s your notice period at Lumen? <a href="#/candidate">Answer</a></div><div>Have you led a team? <a href="#/candidate">Answer</a></div><div class="xs mut">Optional. Never pauses an Application.</div></div></div>
+    </div></div>`;
+}
+function homeC() {
+  const d = D();
+  const st = [['Discovered','discovered'],['Qualified','qualified'],['Queued','queued'],['Preparing','preparing'],['In browser','browser'],['Submitted','submitted']];
+  const feed = D().feed || [['14:21','Submitted','Figma · Software Engineer, AI','ok'],['14:19','Browser Run','Figma: 23 fields, 2 files, confirmation seen',''],['14:10','Skipped','Palantir · FDE: requires TS/SCI clearance',''],['14:06','Needs You','Ford · CAPTCHA at final page','bad'],['14:02','Uncertain','Ramp · no confirmation after submit','warn'],['13:55','Discovered','Greenhouse · 6 new postings on 42 Boards','']];
+  return `${onboardingCard()}<div class="row sp" style="margin:${d.onboarding ? 16 : 0}px 0 12px"><div><h1>${d.sub.today} submitted today</h1><div class="mut sm num">${d.sub.week} this week · ${d.sub.all} all time · ${badges().needs} need you · ${badges().review} ready for review${badges().unc ? ` · <b style="color:var(--warn)">${badges().unc} uncertain</b>` : ''}</div></div><a class="btn" href="#/hunt-new">+ New Hunt</a></div>
+    <div class="col g16">${hunts().map(h => { const [s, why] = d.health[h.id]; return `<div class="card"><div class="row sp" style="margin-bottom:10px"><div class="row g8"><a href="#/hunt/${h.id}" class="b" style="font-size:15px;text-decoration:none">${h.name}</a>${hpill(s)}<span class="xs mut">${why}</span></div><div class="row g8 xs mut"><span>${h.latitude}</span>·<span>${h.review}</span>·<button class="btn sm">${h.active ? 'Pause' : 'Resume'}</button></div></div>
+      <div class="lane">${st.map(([l,k]) => `<div class="stage ${k === 'submitted' ? 'hl' : ''}"><div class="xs mut">${l}</div><div class="n num">${h.today[k]}</div></div>`).join('')}</div>
+      <div class="row g8 xs" style="margin-top:8px">${h.today.needs ? `<a href="#/needs-you" class="pill bad">${h.today.needs} Needs You</a>` : ''}${h.today.review ? `<a href="#/review" class="pill vio">${h.today.review} Review</a>` : ''}<span class="mut">Last discovery ${h.lastDisc} · last submitted ${h.lastSub} · ${h.rate}</span></div></div>`; }).join('')}
+    <div class="card"><h2>Activity</h2><ul class="feed">${feed.map(([t,k,x,c]) => `<li><span class="xs mut num" style="width:40px">${t}</span><span class="pill ${c}">${k}</span><span class="sm">${x}</span></li>`).join('')}</ul></div></div>`;
+}
+
+// ---------- shared screens ----------
+function needsYouScreen() {
+  const its = inboxItems().filter(i => i.k !== 'r');
+  return `<h1>Needs You</h1><div class="mut sm" style="margin-bottom:16px">Each item blocks one Application. Holds (shared blockers) are not here; they lift by themselves.</div>
+    <div class="card">${its.length ? its.map(i => `<div class="item"><div class="ico" style="background:${i.k === 'u' ? 'var(--warnbg)' : 'var(--badbg)'}">${i.ico}</div><div><div class="xs mut">${i.head}</div><div class="b">${i.title}</div><div class="sm">${i.detail}</div></div><div style="text-align:right">${i.acts}</div></div>`).join('') : '<div class="mut">Nothing needs you.</div>'}</div>
+    <div class="placeholder" style="margin-top:16px">Take over → opens the employer’s page live (noVNC) in a new tab, with “I’m done” / “I submitted it” / “Give up” controls. Assessment → link + Done / Abandon.</div>`;
+}
+function reviewScreen() {
+  return `<h1>Ready for Review</h1><div class="mut sm" style="margin-bottom:16px">Filled and waiting for your approval because a Hunt’s Review rule asked for it. Not stuck.</div>
+    <div class="grid3">${D().review.map(r => `<div class="card"><div class="row sp"><b>${r.emp}</b>${fitp(r.fit)}</div><div class="sm">${r.role}</div><div class="xs mut" style="margin:8px 0">${H(r.hunt)}</div><div class="sm">Resume: ${r.resume}<br>Cover letter: ${r.cover}<br>Questions: ${r.qs}</div><a class="btn pri sm" style="display:inline-block;margin-top:10px;text-decoration:none" href="#/app/${r.app}/review">Review &amp; submit</a></div>`).join('') || '<div class="mut">Nothing to review.</div>'}</div>`;
+}
+function huntsScreen() { return `<div class="row sp"><h1>Hunts</h1><a class="btn pri" href="#/hunt-new">+ New Hunt</a></div><div class="grid3" style="margin-top:12px">${hunts().map(h => `<a href="#/hunt/${h.id}" class="card" style="text-decoration:none"><div class="row sp"><b>${h.name}</b>${hpill(D().health[h.id][0])}</div><div class="mid num" style="margin-top:10px">${h.today.submitted}</div><div class="xs mut">submitted today · ${h.all.submitted} all time</div></a>`).join('')}</div>`; }
+function huntScreen(id) {
+  const h = hunts().find(x => x.id === id) || HUNTS[id], [s, why] = D().health[id] || ['HEALTHY',''];
+  return `<div class="xs mut"><a href="#/hunts">Hunts</a> /</div><div class="row sp"><h1>${h.name}</h1><div class="row g8"><span class="pill ${h.active ? 'ok' : ''}">${h.active ? 'ACTIVE' : 'PAUSED'}</span><button class="btn">${h.active ? 'Pause' : 'Resume'}</button></div></div>
+  <div class="row g8 sm" style="margin:6px 0 16px">${hpill(s)}<span class="mut">${why}</span></div>
+  <div class="grid4">${[['Last discovery',h.lastDisc],['Last submitted',h.lastSub],['Queue',h.queue],['Rate',h.rate]].map(([l,v]) => `<div class="card" style="padding:12px"><div class="xs mut">${l}</div><div class="b num" style="font-size:18px">${v}</div></div>`).join('')}</div>
+  <div class="grid2" style="margin-top:16px"><div class="card"><h2>Controls</h2>
+    <div class="col g8 sm"><div><div class="b">Creative Latitude</div>${['Literal','Conservative','Aggressive','Maximum Persuasive'].map(l => `<label style="display:block"><input type="radio" name="lat" ${l === h.latitude ? 'checked' : ''}> ${l}</label>`).join('')}<div class="xs mut">${h.latitude}: strongly adapts your real experience to each position, including inferred transferable skills and job-specific language.</div></div>
+    <div><div class="b">Submission policy</div>Qualified → submit automatically · ${h.review}</div><div><div class="b">Daily limit</div>${h.cap}</div><div><div class="b">Targeting</div>AI engineer, software engineer · SF ideal, NYC/DC good, US acceptable · min $100k, ideal $200k+ <a href="#/hunt-new">Edit</a></div><div><div class="b">Resume template</div>Inherit Candidate default (Modern) <span class="pill">open question</span></div></div></div>
+    <div class="card"><h2>Today</h2><table class="num">${Object.entries(h.today).map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table><h3 style="margin-top:12px">Recently skipped</h3><div class="sm col g8"><div>Palantir · FDE <span class="mut">requires TS/SCI clearance</span></div><div>Meta · Intern <span class="mut">“Intern” title excluded</span></div><div>Acme · Staff Eng <span class="mut">pay top $90k below $100k minimum</span></div></div></div></div>`;
+}
+function appsScreen() {
+  const rows = [['OpenAI','AI Engineer, Applied',97,'Ready for Review','ai','a1'],['Ramp','Senior Backend Engineer',86,'Uncertain Submission','ai','a11'],['Figma','Software Engineer, AI',88,'Submitted','ai','a4'],['Stripe','Solutions Engineer',84,'Needs You','devrel','a8'],['Discord','Backend Engineer',74,'Submitted','ai','a5'],['Datadog','AI Engineer',82,'Needs You','ai','a9'],['Hashicorp','Platform Engineer',68,'Preparing','ai','x'],['Retool','Developer Advocate',71,'Queued','devrel','x'],['Airtable','AI Engineer',77,'Expired','ai','x'],['Coinbase','Backend Engineer',70,'Abandoned','ai','x']];
+  const c = { 'Submitted':'ok', 'Needs You':'bad', 'Uncertain Submission':'warn', 'Ready for Review':'vio' };
+  return `<h1>Applications</h1><div class="row g8 wrap" style="margin:12px 0"><select><option>All Hunts</option></select><select><option>Any status</option></select><select><option>Fit: any</option></select><input placeholder="Company or title"><select><option>Last 30 days</option></select></div>
+  <div class="card"><table><tr><th>Employer</th><th>Role</th><th>Fit</th><th>Status</th><th>Driving Hunt</th></tr>${rows.map(r => `<tr class="click" onclick="location.hash='#/app/${r[5]}'"><td class="b">${r[0]}</td><td>${r[1]}</td><td>${fitp(r[2])}</td><td><span class="pill ${c[r[3]] || ''}">${r[3]}</span></td><td class="mut">${H(r[4])}</td></tr>`).join('')}</table></div>`;
+}
+function appScreen(tab, reviewMode) {
+  const a = APP, t = tab || 'overview', tabs = [['overview','Why'],['job','Job Snapshot'],['resume','Resume'],['cover','Cover letter'],['answers','Answers'],['execution','Execution']];
+  const body = {
+    overview: `<div class="grid2"><div class="card"><h2>Match on ${H(a.hunt)} (Driving Hunt)</h2><table>${a.match.map(m => `<tr><td class="b">${m[0]}</td><td><span class="pill ${m[1] === 'IDEAL' ? 'ok' : 'info'}">${m[1]}</span></td><td class="sm">${m[2]}</td></tr>`).join('')}</table><div class="sm" style="margin-top:10px">Decision: <b>${a.decisive}</b></div><div class="xs mut">Also wanted by: ${a.alsoHunts.map(H).join(', ')}</div></div>
+      <div class="card"><h2>Strategy</h2><div class="sm"><b>Themes:</b> ${a.themes.join(' · ')}</div><div class="sm" style="margin-top:6px"><b>Lead angle:</b> production LLM gateway + eval harness</div><div class="sm" style="margin-top:6px"><b>Latitude applied:</b> Aggressive</div><div class="xs mut" style="margin-top:8px">Cost so far $0.25 · 1 Browser Run</div></div></div>`,
+    job: `<div class="card"><div class="xs mut">Snapshot taken ${a.date} · posted ${a.posted} · ${a.loc} · ${a.pay}</div><div class="placeholder" style="margin-top:8px;height:180px">Posting text as it read when prepared (kept even if the posting changes or closes)</div></div>`,
+    resume: `<div class="card"><div class="row sp"><h2>Tailored resume</h2><div class="row g8"><span class="xs mut">Template: Modern</span><button class="btn sm">Download PDF</button>${reviewMode ? '<button class="btn sm">Edit bullets</button>' : ''}</div></div><div class="placeholder" style="height:300px">Rendered PDF preview (see prototypes/resume-templates/out/*.png). ${reviewMode ? 'Editing changes ResumeContent; code re-renders deterministically.' : 'After submission this is the exact file sent.'}</div></div>`,
+    cover: `<div class="card"><h2>Cover letter</h2><div class="sm" style="max-width:640px">Dear OpenAI team,<br><br>For the last two years I have been the engineer who makes LLM features dependable in production…</div></div>`,
+    answers: `<div class="card"><table><tr><th>Question</th><th>Answer</th><th>Class</th><th>Source</th></tr>${a.answers.map(r => `<tr><td>${r[0]}</td><td>${reviewMode ? `<input value="${r[1]}" style="width:100%">` : r[1]}</td><td><span class="pill">${r[2]}</span></td><td class="xs mut">${r[3]}</td></tr>`).join('')}</table></div>`,
+    execution: `<div class="card"><h2>Timeline</h2><ul class="feed">${a.timeline.map(([t,k,x]) => `<li><span class="xs mut num" style="width:40px">${t}</span><span class="pill">${k}</span><span class="sm">${x}</span></li>`).join('')}</ul><div class="placeholder" style="margin-top:12px">Evidence: screenshots per step, filled-values ledger, confirmation page (when submitted).</div></div>` };
+  return `<div class="xs mut"><a href="#/applications">Applications</a> /</div><div class="row sp"><div><h1>${a.emp} · ${a.role}</h1><div class="row g8 sm">${fitp(a.fit)}<span class="pill vio">${a.status}</span><span class="mut">${H(a.hunt)} · ${a.date}</span></div></div>
+    ${reviewMode ? `<div class="row g8"><button class="btn dan">Abandon</button><button class="btn pri" onclick="this.textContent='Submitting…';this.disabled=true">Approve &amp; submit</button></div>` : `<a class="btn pri" href="#/app/${a.id}/review" style="text-decoration:none">Review &amp; submit</a>`}</div>
+    ${reviewMode ? '<div class="banner dry" style="margin-top:12px">Review: this is exactly what the employer will receive. Edits are kept for this Application only; reusable factual answers are also saved to your Candidate.</div>' : ''}
+    <div class="tabs" style="margin-top:16px">${tabs.map(([k,l]) => `<a href="#/app/${a.id}/${reviewMode ? 'review/' : ''}${k}" class="${k === t ? 'on' : ''}">${l}</a>`).join('')}</div>${body[t]}
+    <div class="xs mut" style="margin-top:12px">Outcome (interview / rejection) is not tracked in Phase 0.</div>`;
+}
+function candidateScreen() {
+  const d = D();
+  return `<h1>Candidate</h1><div class="tabs">${['Overview','Profile','Experience','Projects','Skills','Stories','Documents','Standing answers','Interview','Base Resumes'].map((t,i) => `<a class="${i ? '' : 'on'}" href="#/candidate">${t}</a>`).join('')}</div>
+    ${onboardingCard()}<div class="grid3" style="margin-top:16px"><div class="card"><h3>Enriched</h3><div class="mid num">${d.enriched}%</div><div class="bar" style="margin:8px 0"><i style="width:${d.enriched}%"></i></div><div class="xs mut">Informational. Gaps: career stories, leadership, notice period.</div><button class="btn sm" style="margin-top:8px">Continue interview</button></div>
+    <div class="card"><h3>Check the essentials</h3><div class="sm col g8"><div>Legal name · Alex Rivera ✓</div><div>Work authorization · US citizen ✓</div><div style="color:var(--warn)">Two different end dates for Brightwell (Feb 2023 / Mar 2023) <a href="#/candidate">Resolve</a></div></div><div class="xs mut" style="margin-top:6px">Dismissible. Never blocks a Hunt.</div></div>
+    <div class="card"><h3>Questions for you</h3><div class="sm col g8"><div>What’s your notice period? <a href="#/candidate">Answer</a></div><div>Tell me about a time you led a migration. <a href="#/candidate">Answer</a></div></div><div class="xs mut" style="margin-top:6px">Up to 3. Never pause an Application.</div></div></div>
+    <div class="card" style="margin-top:16px"><h3>Resume template (Candidate default)</h3><div class="row g8 sm"><label><input type="radio" name="tpl"> Classic</label><label><input type="radio" name="tpl" checked> Modern</label><label><input type="radio" name="tpl"> Compact</label><span class="pill">open question: per-Hunt override?</span></div></div>`;
+}
+function huntNewScreen() {
+  return `<h1>New Hunt</h1><div class="grid2" style="margin-top:12px"><div class="card chat col g8"><div class="q">What kinds of jobs are you looking for?</div><div class="a">AI engineering and software roles.</div><div class="q">Where?</div><div class="a">San Francisco ideally, NYC and DC are good, but anywhere in the US is acceptable.</div><div class="q">Minimum salary? Ideal?</div><div class="a">$100k minimum, $200k+ ideal.</div><div class="row g8"><input class="grow" placeholder="Reply…"><button class="btn pri">Send</button></div></div>
+    <div class="card"><h2>Hunt criteria (editable)</h2><table class="sm"><tr><td class="b">Roles</td><td>AI engineer, ML engineer, software engineer <span class="pill info">broadened</span></td></tr><tr><td class="b">Location</td><td>Ideal: San Francisco · Good: NYC, DC · Acceptable: anywhere US · Outside US: <i>unconstrained</i></td></tr><tr><td class="b">Pay</td><td>Unacceptable below $100k · Ideal $200k+</td></tr><tr><td class="b">Seniority</td><td><i>unconstrained</i></td></tr><tr><td class="b">Policy</td><td>Auto-submit every qualified Match · no Review rule</td></tr></table><div class="xs mut" style="margin-top:8px">Never adds exclusions, pay floors or Commitments you didn’t state.</div><button class="btn pri" style="margin-top:10px">Start Hunt</button></div></div>`;
+}
+function settingsScreen() {
+  return `<h1>Settings</h1><div class="grid2" style="margin-top:12px"><div class="card"><h2>Submission mode</h2><div class="sm">${D().mode === 'dry' ? '<span class="pill vio">DRY RUN</span> Fills everything, never submits.' : '<span class="pill ok">LIVE</span> Submits confirmed Applications.'}</div><div class="xs mut" style="margin-top:6px">Going live is gated once on the restore drill and journal activation.</div></div>
+    <div class="card"><h2>AI keys &amp; spend</h2><div class="sm">Anthropic ${D().holds.some(h => h.scope === 'AI provider') ? '<span class="pill bad">rejected</span>' : '<span class="pill ok">ok</span>'} · OpenAI <span class="pill ok">ok</span></div><div class="sm" style="margin-top:6px">Today $3.12 of $10 cap · month $61 of $150</div></div>
+    <div class="card"><h2>Mailbox Connection</h2><div class="sm">Not connected. Emailed codes become Needs You items. <button class="btn sm">Connect (IMAP)</button></div></div>
+    <div class="card"><h2>Push alerts</h2><div class="sm">ntfy topic set · Needs You and Review batched ≤ 1 per 15 min</div></div></div>`;
+}
+function activityScreen() { return homeC().split('<div class="card"><h2>Activity</h2>')[1] ? `<h1>Activity</h1><div class="card">` + homeC().split('<div class="card"><h2>Activity</h2>')[1] : ''; }
+
+// ---------- render ----------
+function render() {
+  const r = route(); let body;
+  if (r[0] === 'home') body = { A:homeA, B:homeB, C:homeC }[V]();
+  else if (r[0] === 'needs-you') body = needsYouScreen();
+  else if (r[0] === 'review') body = reviewScreen();
+  else if (r[0] === 'hunts') body = huntsScreen();
+  else if (r[0] === 'hunt') body = huntScreen(r[1]);
+  else if (r[0] === 'hunt-new') body = huntNewScreen();
+  else if (r[0] === 'applications') body = appsScreen();
+  else if (r[0] === 'app') body = r[2] === 'review' ? appScreen(r[3], true) : appScreen(r[2], false);
+  else if (r[0] === 'candidate') body = candidateScreen();
+  else if (r[0] === 'settings') body = settingsScreen();
+  else if (r[0] === 'activity') body = activityScreen();
+  else body = '<h1>Not in prototype</h1>';
+  document.getElementById('app').innerHTML = { A:shellA, B:shellB, C:shellC }[V](body, r);
+  document.getElementById('vlab').textContent = `${V} · ${VARIANTS[V]}`;
+  document.getElementById('scen').value = S;
+  const b = badges();
+  document.getElementById('state').textContent = `#/${r.join('/')} · needs ${b.needs} · review ${b.review} · uncertain ${b.unc} · holds ${b.holds}`;
+}
+function resolve(id) { local.resolved[id] = true; render(); }
+const keys = Object.keys(VARIANTS);
+const cycle = d => { V = keys[(keys.indexOf(V) + d + keys.length) % keys.length]; setQS(); };
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.getElementById('scen').onchange = e => { S = e.target.value; local.resolved = {}; setQS(); };
+addEventListener('keydown', e => { if (e.target.closest('input,textarea,select,[contenteditable]')) return; if (e.key === 'ArrowLeft') cycle(-1); if (e.key === 'ArrowRight') cycle(1); });
+addEventListener('hashchange', () => { render(); scrollTo(0, 0); });
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+{
+  "_note": "PROTOTYPE sample. Shape follows the Generation pipeline decision (#16): `identity`, entry headers (employer, title, dates, location), education and certifications are written by code from Candidate Facts; `summary`, `skills` and `bullets` are LLM-authored ResumeContent citing fact ids. Templates ignore `cites`.",
+  "identity": {
+    "name": "Alex Rivera",
+    "email": "alex.rivera@example.com",
+    "phone": "(512) 555-0142",
+    "location": "Austin, TX",
+    "links": ["linkedin.com/in/alexrivera", "github.com/alexrivera"]
+  },
+  "summary": "Software engineer with 7 years building data-heavy web products and, for the last 2, LLM-backed features in production. Ships end to end: TypeScript services, evaluation harnesses, and the UI that makes model output trustworthy to users.",
+  "skills": [
+    { "group": "Languages", "items": ["TypeScript", "Python", "SQL", "Go"] },
+    { "group": "AI / ML", "items": ["LLM tool use", "structured output", "retrieval", "offline evals", "prompt caching"] },
+    { "group": "Platform", "items": ["PostgreSQL", "Node.js", "React", "Playwright", "AWS", "Terraform"] }
+  ],
+  "experience": [
+    {
+      "employer": "Lumen Analytics",
+      "title": "Senior Software Engineer, AI Platform",
+      "location": "Austin, TX (hybrid)",
+      "start": "Mar 2023",
+      "end": "Present",
+      "bullets": [
+        { "text": "Led the design of a TypeScript LLM gateway serving 14 internal features, with per-team spend caps and provider fallback; cut model spend 38% while p95 latency fell from 9.1 s to 4.3 s.", "cites": ["f_101", "f_102"] },
+        { "text": "Built an offline evaluation harness (2,400 labelled cases) that gates every prompt change in CI, catching 31 regressions before release in its first year.", "cites": ["f_103"] },
+        { "text": "Shipped structured-extraction for customer contracts, replacing a manual review queue and saving analysts ~120 hours a month.", "cites": ["f_104"] },
+        { "text": "Mentored 4 engineers through their first production AI features; wrote the team's guide to schema-validated model output.", "cites": ["f_105"] }
+      ]
+    },
+    {
+      "employer": "Brightwell Health",
+      "title": "Software Engineer II",
+      "location": "Remote",
+      "start": "Jun 2020",
+      "end": "Feb 2023",
+      "bullets": [
+        { "text": "Owned the scheduling service (Node.js, PostgreSQL) handling 1.2M appointments a month at 99.95% availability.", "cites": ["f_201"] },
+        { "text": "Migrated 40 background jobs to a Postgres-backed queue with idempotency keys, ending a class of double-booking incidents.", "cites": ["f_202"] },
+        { "text": "Introduced Playwright end-to-end tests for the booking flow, reducing escaped defects by roughly half over two quarters.", "cites": ["f_203"] }
+      ]
+    },
+    {
+      "employer": "Cobalt Labs",
+      "title": "Software Engineer",
+      "location": "Austin, TX",
+      "start": "Jul 2018",
+      "end": "May 2020",
+      "bullets": [
+        { "text": "Built React dashboards and the REST APIs behind them for a B2B logistics product used by 300 shippers.", "cites": ["f_301"] },
+        { "text": "Wrote the CSV import pipeline that onboarded the company's three largest customers.", "cites": ["f_302"] }
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "tidepool",
+      "detail": "Open-source TypeScript library for typed retries and backoff, 1.9k GitHub stars",
+      "bullets": [
+        { "text": "Designed the public API and documentation; maintain releases with 35 outside contributors.", "cites": ["f_401"] }
+      ]
+    }
+  ],
+  "education": [
+    { "school": "The University of Texas at Austin", "degree": "B.S. Computer Science", "start": "2014", "end": "2018", "detail": "" }
+  ],
+  "certifications": [
+    { "name": "AWS Certified Solutions Architect, Associate", "year": "2022" }
+  ]
+}

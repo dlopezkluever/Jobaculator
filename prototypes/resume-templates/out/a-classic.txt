@@ -1,0 +1,47 @@
+                                               Alex Rivera
+   Austin, TX | (512) 555-0142 | alex.rivera@example.com | linkedin.com/in/alexrivera | github.com/alexrivera
+
+SUMMARY
+Software engineer with 7 years building data-heavy web products and, for the last 2, LLM-backed features in
+production. Ships end to end: TypeScript services, evaluation harnesses, and the UI that makes model output
+trustworthy to users.
+
+EXPERIENCE
+Senior Software Engineer, AI Platform                                                                Mar 2023 – Present
+Lumen Analytics                                                                                      Austin, TX (hybrid)
+ • Led the design of a TypeScript LLM gateway serving 14 internal features, with per-team spend caps and provider
+    fallback; cut model spend 38% while p95 latency fell from 9.1 s to 4.3 s.
+ • Built an offline evaluation harness (2,400 labelled cases) that gates every prompt change in CI, catching 31
+    regressions before release in its first year.
+ • Shipped structured-extraction for customer contracts, replacing a manual review queue and saving analysts ~120
+    hours a month.
+ • Mentored 4 engineers through their first production AI features; wrote the team's guide to schema-validated
+    model output.
+Software Engineer II                                                                                Jun 2020 – Feb 2023
+Brightwell Health                                                                                                Remote
+ • Owned the scheduling service (Node.js, PostgreSQL) handling 1.2M appointments a month at 99.95% availability.
+ • Migrated 40 background jobs to a Postgres-backed queue with idempotency keys, ending a class of double-
+    booking incidents.
+ • Introduced Playwright end-to-end tests for the booking flow, reducing escaped defects by roughly half over two
+    quarters.
+Software Engineer                                                                                  Jul 2018 – May 2020
+Cobalt Labs                                                                                                   Austin, TX
+ • Built React dashboards and the REST APIs behind them for a B2B logistics product used by 300 shippers.
+ • Wrote the CSV import pipeline that onboarded the company's three largest customers.
+
+PROJECTS
+tidepool, Open-source TypeScript library for typed retries and backoff, 1.9k GitHub stars
+  • Designed the public API and documentation; maintain releases with 35 outside contributors.
+
+SKILLS
+Languages: TypeScript, Python, SQL, Go
+AI / ML: LLM tool use, structured output, retrieval, offline evals, prompt caching
+Platform: PostgreSQL, Node.js, React, Playwright, AWS, Terraform
+
+EDUCATION
+The University of Texas at Austin                                                                           2014 – 2018
+B.S. Computer Science
+
+CERTIFICATIONS
+AWS Certified Solutions Architect, Associate                                                                       2022
+
