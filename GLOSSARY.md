@@ -46,6 +46,10 @@ _Avoid_: Listing, post, duplicate
 One Hunt's judgement of one Opportunity: whether it qualifies, how well it fits, and what the Hunt's policy decides to do about it.
 _Avoid_: Evaluation, score, Hunt-Opportunity
 
+**Opportunity Value**:
+The order in which Applications get the browser: high Fit and recent first, then high Fit and older, then acceptable and recent, then acceptable and older, with Fit deciding within each tier. One order across all Hunts, using the Driving Hunt's Fit; a posting of unknown age counts as older.
+_Avoid_: Priority score, ranking, competitiveness
+
 ## Applying
 
 **Application**:
