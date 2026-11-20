@@ -29,7 +29,10 @@
 		"dev:worker": "tsx watch src/worker.ts",
 		"dev:web": "vite",
 		"build": "tsx scripts/build.ts",
-		"build:web": "vite build"
+		"build:web": "vite build",
+		"ops:provision": "tsx ops/provision.ts",
+		"ops:deploy": "tsx ops/deploy.ts",
+		"ops:run": "tsx ops/run.ts"
 	},
 	"dependencies": {
 		"@hono/node-server": "^2.1.9",

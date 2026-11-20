@@ -1,0 +1,11 @@
+// Installed by ops/provision (§17). The worker may start and stop one Takeover unit per
+// Browser Run (`jobaculator-takeover@<run>.service`, TB2) and nothing else.
+// polkit's JavaScript engine (Duktape) is ES5: no arrow functions, const or let.
+polkit.addRule(function (action, subject) {
+	if (action.id != "org.freedesktop.systemd1.manage-units" || subject.user != "jobaculator-worker") return;
+	var unit = action.lookup("unit");
+	var verb = action.lookup("verb");
+	if (/^jobaculator-takeover@[A-Za-z0-9-]+\.service$/.test(unit) && (verb == "start" || verb == "stop")) {
+		return polkit.Result.YES;
+	}
+});

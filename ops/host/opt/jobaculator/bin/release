@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# Root-owned, installed by ops/provision (§17); the admin runs it through passwordless sudo
+# from `pnpm ops:deploy`. It only fetches, verifies, unpacks, switches `current` and restarts.
+# Everything that runs release code (migrations, the egress probe) runs as an unprivileged user.
+#
+#   release activate <sha> <sha256> [--force]   deploy build-<sha>; sha256 comes from the GitHub API
+#   release rollback [<sha>]                     point `current` at an unpacked release (default: previous)
+#   release status
+#   release egress-check                         prove the worker unit cannot reach private addresses
+set -euo pipefail
+umask 022
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C
+
+REPO=dlopezkluever/Jobaculator
+ROOT=/opt/jobaculator
+RELEASES=$ROOT/releases
+KEEP=5
+UNITS=(jobaculator-web jobaculator-worker)
+
+die() { echo "release: $*" >&2; exit 1; }
+step() { echo "==> $*"; }
+[[ $(id -u) == 0 ]] || die "run as root (sudo)"
+
+exec 9>/run/jobaculator-release.lock
+flock -n 9 || die "another release command is running"
+
+target_of() { [[ -L $1 ]] && basename "$(readlink "$1")" || true; }
+
+# Systemd transient unit as an unprivileged user, attached to this terminal or pipe.
+run_as() {
+	local user="$1"; shift
+	local io=--pipe; [[ -t 0 && -t 1 ]] && io=--pty
+	systemd-run --quiet --wait --collect "$io" -p "User=$user" -p NoNewPrivileges=yes -p PrivateTmp=yes "$@"
+}
+
+stop_units() { systemctl stop "${UNITS[@]}"; }
+
+# Stop old, then start new: two workers never overlap (§17).
+switch_to() {
+	local sha="$1" old
+	old="$(target_of "$ROOT/current")"
+	step "Switching current: ${old:-none} -> $sha"
+	stop_units
+	ln -sfn "releases/$sha" "$ROOT/current.new"
+	mv -T "$ROOT/current.new" "$ROOT/current"
+	if [[ -n $old && $old != "$sha" ]]; then
+		ln -sfn "releases/$old" "$ROOT/previous.new"
+		mv -T "$ROOT/previous.new" "$ROOT/previous"
+	fi
+	touch "$RELEASES/$sha"
+	systemctl start "${UNITS[@]}"
+	check_health
+}
+
+check_health() {
+	step "Checking web and worker"
+	local i
+	for i in $(seq 30); do
+		curl -fs -m 2 -o /dev/null http://127.0.0.1:3000/health && break
+		((i == 30)) && die "web did not answer /health within 30 s; see journalctl -u jobaculator-web"
+		sleep 1
+	done
+	echo "    web is healthy"
+	local invocation
+	for i in $(seq 30); do
+		invocation="$(systemctl show -P InvocationID jobaculator-worker)"
+		journalctl -q -o cat -u jobaculator-worker "_SYSTEMD_INVOCATION_ID=$invocation" | grep -q '"event":"worker_started"' && break
+		((i == 30)) && die "worker did not start within 30 s; see journalctl -u jobaculator-worker"
+		sleep 1
+	done
+	echo "    worker started"
+}
+
+# The worker's own IPAddressDeny/Allow, applied to a probe running as the worker user: private
+# targets must be unreachable. A control run without the block must reach Postgres's TCP port,
+# or the check proves nothing.
+egress_check() {
+	local node="$ROOT/current/bin/node" probe="$ROOT/bin/egress-probe.mjs" deny allow
+	[[ -x $node ]] || die "no current release"
+	deny="$(systemctl show -P IPAddressDeny jobaculator-worker)"
+	allow="$(systemctl show -P IPAddressAllow jobaculator-worker)"
+	[[ -n $deny ]] || die "jobaculator-worker has no IPAddressDeny="
+	step "Egress check"
+	if run_as jobaculator-worker -- "$node" "$probe" 127.0.0.1:5432 >/dev/null; then
+		die "control failed: 127.0.0.1:5432 is unreachable even without the block"
+	fi
+	run_as jobaculator-worker -p "IPAddressDeny=$deny" -p "IPAddressAllow=$allow" -- \
+		"$node" "$probe" 169.254.169.254:80 127.0.0.1:5432 [::1]:5432 [::ffff:127.0.0.1]:5432 10.0.0.1:80 ||
+		die "the worker can reach a private address"
+	echo "    the worker reaches no private address"
+}
+
+# Keeps the newest $KEEP unpacked releases, always including current and previous.
+prune() {
+	local current previous dir kept=0
+	current="$(target_of "$ROOT/current")"
+	previous="$(target_of "$ROOT/previous")"
+	[[ -n $current ]] && kept=$((kept + 1))
+	[[ -n $previous && $previous != "$current" ]] && kept=$((kept + 1))
+	while read -r dir; do
+		[[ $dir == "$current" || $dir == "$previous" ]] && continue
+		if ((kept < KEEP)); then
+			kept=$((kept + 1))
+		else
+			rm -rf "${RELEASES:?}/$dir"
+			echo "    pruned $dir"
+		fi
+	done < <(ls -1t "$RELEASES" | grep -E '^[0-9a-f]{40}$')
+}
+
+# Migrations wait for a live Takeover to end. TODO(applications): also wait while any
+# Application is SUBMITTING, once that table exists.
+wait_until_idle() {
+	local i
+	for i in $(seq 180); do
+		systemctl list-units --no-legend --state=active 'jobaculator-takeover@*' | grep -q . || return 0
+		((i == 1)) && echo "    a Takeover is live; waiting (up to 30 min, or rerun with --force)"
+		sleep 10
+	done
+	die "a Takeover is still live"
+}
+
+activate() {
+	local sha="$1" sha256="$2" force="${3:-}" dir="$RELEASES/$1"
+	[[ $sha =~ ^[0-9a-f]{40}$ ]] || die "sha must be 40 lowercase hex characters"
+	[[ $sha256 =~ ^[0-9a-f]{64}$ ]] || die "sha256 must be 64 lowercase hex characters"
+	[[ -z $force || $force == --force ]] || die "unknown option $force"
+
+	if [[ -d $dir && $(cat "$dir/.sha256" 2>/dev/null) == "$sha256" ]]; then
+		step "build-$sha is already unpacked"
+	else
+		local tarball="$RELEASES/.download-$sha.tar.gz" stage="$RELEASES/.unpack-$sha"
+		step "Fetching build-$sha"
+		curl -fsSL --proto =https --retry 3 -o "$tarball" \
+			"https://github.com/$REPO/releases/download/build-$sha/jobaculator-$sha.tar.gz"
+		echo "$sha256  $tarball" | sha256sum -c --quiet || { rm -f "$tarball"; die "sha256 mismatch"; }
+		rm -rf "$stage" && mkdir "$stage"
+		tar -xzf "$tarball" -C "$stage" --no-same-owner
+		rm -f "$tarball"
+		[[ $(cat "$stage/BUILD") == "$sha" ]] || die "tarball BUILD does not name $sha"
+		echo "$sha256" >"$stage/.sha256"
+		chmod -R go-w "$stage"
+		rm -rf "$dir" && mv -T "$stage" "$dir"
+	fi
+
+	[[ $force == --force ]] || wait_until_idle
+	step "Restore point deploy-$sha"
+	runuser -u postgres -- psql -X -q -At -d jobaculator -c "select pg_create_restore_point('deploy-$sha')"
+	step "Migrations as migrator"
+	run_as jobaculator-migrator -p "WorkingDirectory=$dir" -E NODE_ENV=production \
+		-E "DATABASE_URL=postgresql://migrator@/jobaculator?host=/run/postgresql" -- "$dir/bin/node" dist/migrate.js
+	switch_to "$sha"
+	egress_check
+	prune
+	step "build-$sha is live"
+}
+
+rollback() {
+	local sha="${1:-}"
+	if [[ -z $sha ]]; then
+		sha="$(target_of "$ROOT/previous")"
+		[[ -n $sha ]] || die "no previous release; name one: release rollback <sha>"
+	fi
+	[[ $sha =~ ^[0-9a-f]{40}$ ]] || die "sha must be 40 lowercase hex characters"
+	[[ -f $RELEASES/$sha/BUILD ]] || die "build-$sha is not unpacked; deploy it with activate"
+	[[ $sha != "$(target_of "$ROOT/current")" ]] || die "build-$sha is already current"
+	switch_to "$sha"
+	step "rolled back to build-$sha"
+}
+
+status() {
+	echo "current:  $(target_of "$ROOT/current")"
+	echo "previous: $(target_of "$ROOT/previous")"
+	echo "unpacked: $(ls -1t "$RELEASES" | grep -cE '^[0-9a-f]{40}$')"
+	local unit
+	for unit in "${UNITS[@]}"; do echo "$unit: $(systemctl is-active "$unit" || true)"; done
+}
+
+case "${1:-}" in
+activate) (($# == 3 || $# == 4)) || die "usage: release activate <sha> <sha256> [--force]"; activate "$2" "$3" "${4:-}" ;;
+rollback) (($# <= 2)) || die "usage: release rollback [<sha>]"; rollback "${2:-}" ;;
+status) (($# == 1)) || die "usage: release status"; status ;;
+egress-check) (($# == 1)) || die "usage: release egress-check"; egress_check ;;
+*) die "usage: release activate <sha> <sha256> [--force] | rollback [<sha>] | status | egress-check" ;;
+esac

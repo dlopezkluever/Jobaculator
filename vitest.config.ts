@@ -7,14 +7,14 @@ export default defineConfig({
 			{
 				test: {
 					name: "unit",
-					include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
+					include: ["src/**/*.test.ts", "scripts/**/*.test.ts", "ops/**/*.test.ts"],
 					exclude: ["**/*.db.test.ts", "**/node_modules/**"],
 				},
 			},
 			{
 				test: {
 					name: "db",
-					include: ["src/**/*.db.test.ts"],
+					include: ["src/**/*.db.test.ts", "ops/**/*.db.test.ts"],
 					globalSetup: ["./src/test-global-setup.ts"],
 					testTimeout: 30_000,
 					hookTimeout: 30_000,
