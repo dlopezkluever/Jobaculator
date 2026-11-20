@@ -3,16 +3,22 @@ import { join } from "node:path";
 import { z } from "zod";
 import { Secret } from "../log/secret";
 
-export type Role = "web" | "worker" | "migrator";
+/** `admin` runs the ops CLI (`user:create`, `user:reset-password`). */
+export type Role = "web" | "worker" | "migrator" | "admin";
 
 /** Credential files each role reads from `$CREDENTIALS_DIRECTORY` (systemd `LoadCredential=`). */
 const ROLE_CREDENTIALS = {
-	web: ["master-key"],
+	web: ["master-key", "auth-secret"],
 	worker: ["master-key"],
 	migrator: [],
+	admin: [],
 } as const satisfies Record<Role, readonly CredentialName[]>;
 
-type CredentialName = "master-key";
+type Credentials = {
+	"master-key": Secret<Buffer>;
+	"auth-secret": Secret<string>;
+};
+type CredentialName = keyof Credentials;
 
 const settingsSchema = z.object({
 	DATABASE_URL: z.string().min(1),
@@ -20,16 +26,22 @@ const settingsSchema = z.object({
 	LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
 	WEB_HOST: z.string().default("127.0.0.1"),
 	WEB_PORT: z.coerce.number().int().min(0).max(65535).default(3000),
+	/** The origin the browser uses to reach `web` (Caddy, or the SSH tunnel in no-hostname mode). */
+	WEB_ORIGIN: z.url({ protocol: /^https?$/ }).default("http://localhost:3000"),
 });
+
+type RoleCredentials<R extends Role> = (typeof ROLE_CREDENTIALS)[R][number];
 
 export type Config<R extends Role = Role> = {
 	role: R;
 	databaseUrl: string;
 	dataDir: string;
 	logLevel: string;
-	web: { host: string; port: number };
+	web: { host: string; port: number; origin: string };
 	/** Master key for `secrets.seal/open`: 32 bytes. Absent for roles that do not receive it. */
-	masterKey: R extends "migrator" ? undefined : Secret<Buffer>;
+	masterKey: "master-key" extends RoleCredentials<R> ? Secret<Buffer> : undefined;
+	/** Signs session cookies (Better Auth). Only `web` receives it. */
+	authSecret: "auth-secret" extends RoleCredentials<R> ? Secret<string> : undefined;
 };
 
 export class ConfigError extends Error {
@@ -49,22 +61,32 @@ export function loadConfig<R extends Role>(role: R, env: NodeJS.ProcessEnv = pro
 		throw new ConfigError(`invalid config: ${problems.join("; ")}`);
 	}
 	const credentials = readCredentials(ROLE_CREDENTIALS[role], env.CREDENTIALS_DIRECTORY);
-	const { DATABASE_URL, DATA_DIR, LOG_LEVEL, WEB_HOST, WEB_PORT } = settings.data;
+	const { DATABASE_URL, DATA_DIR, LOG_LEVEL, WEB_HOST, WEB_PORT, WEB_ORIGIN } = settings.data;
 	return {
 		role,
 		databaseUrl: DATABASE_URL,
 		dataDir: DATA_DIR,
 		logLevel: LOG_LEVEL,
-		web: { host: WEB_HOST, port: WEB_PORT },
-		masterKey: credentials.get("master-key"),
+		web: { host: WEB_HOST, port: WEB_PORT, origin: new URL(WEB_ORIGIN).origin },
+		masterKey: credentials["master-key"],
+		authSecret: credentials["auth-secret"],
 	} as Config<R>;
 }
 
-function readCredentials(
-	names: readonly CredentialName[],
-	directory: string | undefined,
-): Map<CredentialName, Secret<Buffer>> {
-	const out = new Map<CredentialName, Secret<Buffer>>();
+const PARSERS: { [N in CredentialName]: (raw: string) => Credentials[N] } = {
+	"master-key": (raw) => {
+		const key = /^[A-Za-z0-9+/]+={0,2}$/.test(raw) ? Buffer.from(raw, "base64") : Buffer.alloc(0);
+		if (key.length !== 32) throw new ConfigError("credential master-key must be 32 bytes, base64-encoded");
+		return new Secret(key);
+	},
+	"auth-secret": (raw) => {
+		if (raw.length < 32) throw new ConfigError("credential auth-secret must be at least 32 characters");
+		return new Secret(raw);
+	},
+};
+
+function readCredentials(names: readonly CredentialName[], directory: string | undefined): Partial<Credentials> {
+	const out: Partial<Credentials> = {};
 	if (names.length === 0) return out;
 	if (!directory) throw new ConfigError("CREDENTIALS_DIRECTORY is not set");
 	for (const name of names) {
@@ -74,13 +96,7 @@ function readCredentials(
 		} catch {
 			throw new ConfigError(`credential ${name} is missing or unreadable`);
 		}
-		out.set(name, parseMasterKey(raw));
+		Object.assign(out, { [name]: PARSERS[name](raw) });
 	}
 	return out;
-}
-
-function parseMasterKey(raw: string): Secret<Buffer> {
-	const key = /^[A-Za-z0-9+/]+={0,2}$/.test(raw) ? Buffer.from(raw, "base64") : Buffer.alloc(0);
-	if (key.length !== 32) throw new ConfigError("credential master-key must be 32 bytes, base64-encoded");
-	return new Secret(key);
 }

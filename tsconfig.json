@@ -14,5 +14,6 @@
 		"skipLibCheck": true,
 		"noEmit": true
 	},
-	"include": ["src", "scripts", "*.config.ts"]
+	"include": ["src", "scripts", "*.config.ts"],
+	"exclude": ["src/web"]
 }

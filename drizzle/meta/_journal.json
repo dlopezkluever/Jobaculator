@@ -15,6 +15,13 @@
       "when": 1795195297827,
       "tag": "0001_event_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795201839886,
+      "tag": "0002_users_and_candidate",
+      "breakpoints": true
     }
   ]
 }

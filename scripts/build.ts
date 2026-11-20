@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { build } from "esbuild";
+import { build as buildWeb } from "vite";
 
-// Builds the release tarball (§17): bundled entry points, committed migrations and
-// production node_modules. Usage: pnpm build [out.tar.gz]  (default: release.tar.gz)
+// Builds the release tarball (§17): bundled entry points, the built SPA, committed
+// migrations and production node_modules. Usage: pnpm build [out.tar.gz]  (default: release.tar.gz)
 const out = process.argv[2] ?? "release.tar.gz";
 const stage = "build/release";
 
@@ -12,7 +13,7 @@ rmSync("build", { recursive: true, force: true });
 mkdirSync(stage, { recursive: true });
 
 await build({
-	entryPoints: ["src/server.ts", "src/worker.ts", "src/migrate.ts"],
+	entryPoints: ["src/server.ts", "src/worker.ts", "src/migrate.ts", "src/cli.ts"],
 	outdir: join(stage, "dist"),
 	bundle: true,
 	platform: "node",
@@ -22,6 +23,9 @@ await build({
 	sourcemap: true,
 	logLevel: "warning",
 });
+
+// `web` serves dist/web beside dist/server.js.
+await buildWeb({ configFile: "vite.config.ts", logLevel: "warn", build: { outDir: resolve(stage, "dist", "web") } });
 
 for (const file of ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".nvmrc", "drizzle"]) {
 	cpSync(file, join(stage, file), { recursive: true });

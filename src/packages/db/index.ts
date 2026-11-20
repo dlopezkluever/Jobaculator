@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
@@ -61,4 +62,17 @@ export async function trySessionLock(
 			await client.end();
 		},
 	};
+}
+
+/** Whether any session holds the advisory lock `key` taken by `trySessionLock`, such as the running worker's. */
+export async function isSessionLockHeld(exec: Executor, key: bigint): Promise<boolean> {
+	// A bigint advisory lock shows in pg_locks as classid = high 32 bits, objid = low 32 bits, objsubid = 1.
+	const result = await exec.execute<{ held: boolean }>(sql`
+		select exists (
+			select 1 from pg_locks
+			where locktype = 'advisory' and granted and database = (select oid from pg_database where datname = current_database())
+				and classid = ${Number(key >> 32n)} and objid = ${Number(key & 0xffffffffn)} and objsubid = 1
+		) as held
+	`);
+	return result.rows[0]?.held === true;
 }

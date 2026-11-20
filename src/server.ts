@@ -1,25 +1,20 @@
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { sql } from "drizzle-orm";
-import { Hono } from "hono";
+import { createApp } from "./api/app";
 import { loadConfig } from "./packages/config/index";
 import { createDatabase } from "./packages/db/index";
 import { createLogger } from "./packages/log/index";
+import { createUsers } from "./packages/users/index";
 
-// The `web` process: Hono host. Sends jobs, never consumes them (§3).
+// The `web` process: Hono host for auth, the tRPC API and the SPA. Sends jobs, never consumes them (§3).
 const config = loadConfig("web");
 const log = createLogger({ level: config.logLevel });
 const database = createDatabase(config.databaseUrl);
+const users = createUsers({ db: database.db, origin: config.web.origin, secret: config.authSecret, log });
 
-const app = new Hono();
-app.get("/health", async (c) => {
-	try {
-		await database.db.execute(sql`select 1`);
-		return c.json({ status: "ok" });
-	} catch (error) {
-		log.warn({ err: error, event: "health_db_unavailable" });
-		return c.json({ status: "unavailable" }, 503);
-	}
-});
+// `dist/web` beside the entry point: built by `pnpm build:web` in a checkout, shipped in the release.
+const spaRoot = fileURLToPath(new URL("../dist/web", import.meta.url));
+const app = createApp({ db: database.db, users, origin: config.web.origin, log, spaRoot });
 
 const server = serve({ fetch: app.fetch, hostname: config.web.host, port: config.web.port }, (info) =>
 	log.info({ event: "web_started", port: info.port }),

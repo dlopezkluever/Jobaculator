@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/* shadcn/ui theme tokens (§16: the theme is set at build time on these). A warm paper
+   background with a muted teal accent, easier on the eyes than plain grey. */
+:root {
+	--radius: 0.625rem;
+	--background: oklch(0.982 0.005 85);
+	--foreground: oklch(0.26 0.02 250);
+	--card: oklch(0.998 0.002 85);
+	--card-foreground: oklch(0.26 0.02 250);
+	--primary: oklch(0.48 0.08 195);
+	--primary-foreground: oklch(0.985 0.005 195);
+	--secondary: oklch(0.95 0.01 85);
+	--secondary-foreground: oklch(0.3 0.02 250);
+	--muted: oklch(0.955 0.008 85);
+	--muted-foreground: oklch(0.52 0.02 250);
+	--accent: oklch(0.935 0.025 195);
+	--accent-foreground: oklch(0.3 0.04 205);
+	--destructive: oklch(0.57 0.19 27);
+	--warning: oklch(0.93 0.07 85);
+	--warning-foreground: oklch(0.42 0.09 70);
+	--success: oklch(0.62 0.13 155);
+	--border: oklch(0.905 0.01 85);
+	--input: oklch(0.88 0.012 85);
+	--ring: oklch(0.6 0.07 195);
+	--sidebar: oklch(0.962 0.009 85);
+	--sidebar-foreground: oklch(0.32 0.02 250);
+	--sidebar-accent: oklch(0.92 0.025 195);
+	--sidebar-accent-foreground: oklch(0.28 0.04 205);
+	--sidebar-border: oklch(0.9 0.01 85);
+}
+
+@theme inline {
+	/* No emoji fonts in the stack: on Linux, Chromium can take spaces from them and widen every gap. */
+	--font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-warning: var(--warning);
+	--color-warning-foreground: var(--warning-foreground);
+	--color-success: var(--success);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground antialiased;
+	}
+}

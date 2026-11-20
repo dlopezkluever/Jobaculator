@@ -4,6 +4,9 @@ import { z } from "zod";
 import type { Tx } from "../db/index";
 import { userIdSchema } from "../db/ownership";
 
+/** Held by the one running `worker` for its lifetime (§17); `web` reads it for worker status. */
+export const WORKER_LOCK_KEY = 0x4a4f42574b52n; // "JOBWKR"
+
 /**
  * A typed pg-boss queue. Every payload carries the owning `userId` (ADR 0006);
  * handlers load records by `(id, user_id)`. Jobs are disposable nudges: state rows

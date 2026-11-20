@@ -1,11 +1,10 @@
 import { loadConfig } from "./packages/config/index";
 import { trySessionLock } from "./packages/db/index";
-import { createJobs } from "./packages/jobs/index";
+import { createJobs, WORKER_LOCK_KEY } from "./packages/jobs/index";
 import { createLogger } from "./packages/log/index";
 
 // The `worker` process: hosts every pg-boss consumer and schedule (§3).
 // Exactly one runs at a time, enforced by a Postgres advisory lock (§17).
-const WORKER_LOCK_KEY = 0x4a4f42574b52n; // "JOBWKR"
 const SHUTDOWN_GRACE_MS = 60_000;
 
 const config = loadConfig("worker");

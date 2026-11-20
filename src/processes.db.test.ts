@@ -1,9 +1,12 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CSRF_HEADER } from "./api/csrf";
+import { getCandidate } from "./packages/candidate/index";
+import type { UserId } from "./packages/db/ownership";
 import { createTestDatabase, type TestDatabase } from "./packages/db/testing";
 
 let database: TestDatabase;
@@ -12,6 +15,7 @@ beforeAll(async () => {
 	database = await createTestDatabase();
 	const credentials = mkdtempSync(join(tmpdir(), "creds-"));
 	writeFileSync(join(credentials, "master-key"), randomBytes(32).toString("base64"));
+	writeFileSync(join(credentials, "auth-secret"), randomBytes(32).toString("base64url"));
 	env = { PATH: process.env.PATH, DATABASE_URL: database.url, CREDENTIALS_DIRECTORY: credentials, WEB_PORT: "0" };
 });
 afterAll(() => database.close());
@@ -53,6 +57,48 @@ describe("processes", () => {
 		web.child.kill("SIGTERM");
 		expect(await web.exited).toBe(0);
 		expect(web.lines.map((l) => l.event)).toContain("web_stopped");
+	});
+
+	it("the admin CLI creates a User and its Candidate, and the User signs in to web", async () => {
+		const cli = (args: string[], input: string) =>
+			spawnSync(process.execPath, ["--import", "tsx", "src/cli.ts", ...args], { env, input, encoding: "utf8" });
+		const created = cli(["user:create", "--email", "Dana@Example.com", "--name", "Dana"], "a long enough password\n");
+		expect(created.stderr).toBe("");
+		expect(created.status).toBe(0);
+		const userId = created.stdout.match(/created User ([0-9a-f-]{36})/)?.[1] as UserId;
+		expect(await getCandidate(database.db, userId)).not.toBeNull();
+
+		const duplicate = cli(["user:create", "--email", "dana@example.com", "--name", "Dana"], "a long enough password\n");
+		expect(duplicate.status).toBe(1);
+		expect(duplicate.stderr).toContain("already exists");
+		const short = cli(["user:create", "--email", "short@example.com", "--name", "S"], "too-short\n");
+		expect(short.status).toBe(1);
+		expect(short.stderr).not.toContain("too-short");
+
+		const web = start("src/server.ts");
+		const { port } = await waitForEvent(web, "web_started");
+		const signIn = await fetch(`http://127.0.0.1:${port}/api/auth/sign-in/email`, {
+			method: "POST",
+			headers: { "content-type": "application/json", origin: "http://localhost:3000", [CSRF_HEADER]: "1" },
+			body: JSON.stringify({ email: "dana@example.com", password: "a long enough password" }),
+		});
+		expect(signIn.status).toBe(200);
+		const cookie = signIn.headers
+			.getSetCookie()
+			.map((c) => c.split(";")[0])
+			.join("; ");
+		const summary = await fetch(`http://127.0.0.1:${port}/api/trpc/dashboard.summary`, { headers: { cookie } });
+		expect(summary.status).toBe(200);
+		const body = (await summary.json()) as { result: { data: { submitted: unknown } } };
+		expect(body.result.data.submitted).toEqual({ today: 0, week: 0, allTime: 0 });
+
+		expect(cli(["user:reset-password", "--email", "dana@example.com"], "another long password\n").status).toBe(0);
+		expect((await fetch(`http://127.0.0.1:${port}/api/trpc/dashboard.summary`, { headers: { cookie } })).status).toBe(
+			401,
+		);
+
+		web.child.kill("SIGTERM");
+		expect(await web.exited).toBe(0);
 	});
 
 	it("runs exactly one worker, which stops gracefully on SIGTERM", async () => {
