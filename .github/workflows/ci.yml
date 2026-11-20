@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # typecheck + Biome + dependency-cruiser + destructive-SQL check + Vitest (unit and real Postgres 18)
+      - run: pnpm check
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    # One tarball per default-branch commit → GitHub Release build-<sha> with its sha256 (§17).
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: [check, secret-scan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEEP_RELEASES: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build tarball
+        run: |
+          pnpm build "jobaculator-${GITHUB_SHA}.tar.gz"
+          sha256sum "jobaculator-${GITHUB_SHA}.tar.gz" > "jobaculator-${GITHUB_SHA}.tar.gz.sha256"
+      - name: Publish build-${{ github.sha }}
+        run: |
+          sha256="$(cut -d' ' -f1 "jobaculator-${GITHUB_SHA}.tar.gz.sha256")"
+          gh release create "build-${GITHUB_SHA}" \
+            "jobaculator-${GITHUB_SHA}.tar.gz" "jobaculator-${GITHUB_SHA}.tar.gz.sha256" \
+            --target "${GITHUB_SHA}" --title "build-${GITHUB_SHA}" --notes "sha256: ${sha256}" --latest=false
+      - name: Keep the newest ${{ env.KEEP_RELEASES }} builds
+        run: |
+          gh release list --limit 200 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("build-"))] | sort_by(.createdAt) | reverse | .[env.KEEP_RELEASES | tonumber:] | .[].tagName' |
+          while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done

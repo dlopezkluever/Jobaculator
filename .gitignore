@@ -28,3 +28,9 @@ venv/
 Thumbs.db
 .idea/
 .vscode/
+
+# App data and release builds
+.data/
+release.tar.gz
+jobaculator-*.tar.gz*
+.amp/portals/*

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Orb setup: Postgres 18 for DB integration tests, plus dependencies.
+# Node 24 comes from package.json devEngines.runtime (pnpm downloads it).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+step() { echo "==> $1 ($(date +%T))"; }
+
+PG_MAJOR=18
+if ! command -v "/usr/lib/postgresql/$PG_MAJOR/bin/postgres" >/dev/null 2>&1; then
+  step "Installing PostgreSQL $PG_MAJOR from apt.postgresql.org"
+  sudo apt-get install -y --no-install-recommends ca-certificates curl gnupg >/dev/null
+  sudo install -d /usr/share/postgresql-common/pgdg
+  sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    https://www.postgresql.org/media/keys/ACCC4CF8.asc
+  codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+  echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${codename}-pgdg main" |
+    sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+  sudo apt-get update -qq
+  sudo apt-get install -y --no-install-recommends "postgresql-$PG_MAJOR" >/dev/null
+fi
+
+step "Configuring PostgreSQL for tests (speed over durability, trust on localhost)"
+conf_dir="/etc/postgresql/$PG_MAJOR/main"
+sudo tee "$conf_dir/conf.d/orb.conf" >/dev/null <<'EOF'
+fsync = off
+synchronous_commit = off
+full_page_writes = off
+listen_addresses = 'localhost'
+EOF
+sudo tee "$conf_dir/pg_hba.conf" >/dev/null <<'EOF'
+local all all trust
+host  all all 127.0.0.1/32 trust
+host  all all ::1/128 trust
+EOF
+
+step "Installing dependencies"
+pnpm install --frozen-lockfile
+
+step "Done"
