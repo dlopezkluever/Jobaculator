@@ -7,6 +7,7 @@ import { HuntScreen, HuntsScreen } from "./screens/hunt";
 import { EditHuntScreen, NewHuntScreen } from "./screens/hunt-form";
 import { LoginScreen } from "./screens/login";
 import { PlaceholderScreen } from "./screens/placeholder";
+import { SettingsScreen } from "./screens/settings";
 import { AppShell } from "./shell";
 
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet });
@@ -53,7 +54,7 @@ const routeTree = rootRoute.addChildren([
 		createRoute({ getParentRoute: () => appRoute, path: "/hunts/$huntId/edit", component: EditHuntScreen }),
 		placeholder("/applications", "Applications", "No Applications yet."),
 		createRoute({ getParentRoute: () => appRoute, path: "/candidate", component: CandidateScreen }),
-		placeholder("/settings", "Settings", "Submission mode, AI keys and spend, and alerts will live here."),
+		createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsScreen }),
 	]),
 ]);
 

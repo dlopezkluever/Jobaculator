@@ -49,7 +49,19 @@ export async function createTestDatabase(): Promise<TestDatabase> {
 		db: database.db,
 		async close() {
 			await database.close();
-			await admin((client) => client.query(`drop database if exists ${name} with (force)`));
+			await admin(async (client) => {
+				// pool.end() resolves before every connection has finished closing; force-dropping
+				// under a closing one makes it emit an unhandled FATAL 57P01, so wait for them first.
+				for (let tries = 0; tries < 100; tries++) {
+					const open = await client.query<{ n: number }>(
+						"select count(*)::int as n from pg_stat_activity where datname = $1",
+						[name],
+					);
+					if (open.rows[0]?.n === 0) break;
+					await new Promise((resolve) => setTimeout(resolve, 20));
+				}
+				await client.query(`drop database if exists ${name} with (force)`);
+			});
 		},
 	};
 }

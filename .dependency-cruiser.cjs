@@ -91,10 +91,11 @@ module.exports = {
 		},
 		{
 			name: "test-helpers-only-in-tests",
-			comment: "`db/testing.ts` creates and drops databases; only test code may import it.",
+			comment:
+				"`db/testing.ts` creates and drops databases and `ai/testing.ts` is the ScriptedLlm double; only test code may import them.",
 			severity: "error",
 			from: { pathNot: ["\\.test\\.ts$", `^${R}/[^/]+/tests/`, "^src/test-global-setup\\.ts$"] },
-			to: { path: `^${R}/db/testing\\.ts$` },
+			to: { path: `^${R}/(db|ai)/testing\\.ts$` },
 		},
 	],
 	options: {

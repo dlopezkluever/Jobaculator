@@ -36,6 +36,13 @@
       "when": 1795230900157,
       "tag": "0004_candidate_knowledge_base",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795242984323,
+      "tag": "0005_ai_gateway",
+      "breakpoints": true
     }
   ]
 }

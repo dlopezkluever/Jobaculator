@@ -1,5 +1,16 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import {
+	getAiSettings,
+	KeyValidationError,
+	listProviderKeys,
+	PRESETS,
+	PROVIDERS,
+	removeProviderKey,
+	SettingsError,
+	saveProviderKey,
+	updateAiSettings,
+} from "../packages/ai/index";
 import { isSessionLockHeld } from "../packages/db/index";
 import { listEvents } from "../packages/events/index";
 import { HUNT_STATUSES, huntInputSchema } from "../packages/hunts/criteria";
@@ -23,6 +34,18 @@ function found(hunt: Hunt | null): Hunt {
 	return hunt;
 }
 
+/** Domain validation errors become a 400 with their message (which names the rule, never a value). */
+async function asBadRequest<T>(run: () => Promise<T>): Promise<T> {
+	try {
+		return await run();
+	} catch (error) {
+		if (error instanceof KeyValidationError || error instanceof SettingsError) {
+			throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+		}
+		throw error;
+	}
+}
+
 export type SubmissionMode = "LIVE" | "DRY_RUN";
 
 export const appRouter = router({
@@ -34,6 +57,30 @@ export const appRouter = router({
 			mode: "DRY_RUN" as SubmissionMode,
 			workerRunning: await isSessionLockHeld(ctx.db, WORKER_LOCK_KEY),
 		})),
+	}),
+	/** Settings → AI keys and spend (§12). Keys are write-only: reads return only their last 4 characters. */
+	ai: router({
+		settings: authedProcedure.query(async ({ ctx }) => ({
+			keys: await listProviderKeys(ctx.db, ctx.userId),
+			...(await getAiSettings(ctx.db, ctx.userId)),
+		})),
+		saveKey: authedProcedure
+			.input(z.object({ provider: z.enum(PROVIDERS), key: z.string().max(500) }))
+			.mutation(({ ctx, input }) =>
+				asBadRequest(() => saveProviderKey(ctx.db, ctx.secrets, ctx.userId, input.provider, input.key)),
+			),
+		removeKey: authedProcedure
+			.input(z.object({ provider: z.enum(PROVIDERS) }))
+			.mutation(({ ctx, input }) => removeProviderKey(ctx.db, ctx.userId, input.provider)),
+		updateSettings: authedProcedure
+			.input(
+				z.object({
+					preset: z.enum(PRESETS).optional(),
+					dailyCapUsd: z.number().min(0).max(10_000).nullable().optional(),
+					timeZone: z.string().max(100).optional(),
+				}),
+			)
+			.mutation(({ ctx, input }) => asBadRequest(() => updateAiSettings(ctx.db, ctx.userId, input))),
 	}),
 	dashboard: router({
 		/**
