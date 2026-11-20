@@ -2,6 +2,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect } from "@tanstack/react-router";
 import { sessionQuery } from "./lib/session";
 import { DashboardScreen } from "./screens/dashboard";
+import { HuntScreen, HuntsScreen } from "./screens/hunt";
+import { EditHuntScreen, NewHuntScreen } from "./screens/hunt-form";
 import { LoginScreen } from "./screens/login";
 import { PlaceholderScreen } from "./screens/placeholder";
 import { AppShell } from "./shell";
@@ -44,8 +46,10 @@ const routeTree = rootRoute.addChildren([
 			"Inbox",
 			"Nothing is waiting on you. Uncertain Submissions, Needs You and Ready for Review items appear here.",
 		),
-		placeholder("/hunts", "Hunts", "No Hunts yet. A Hunt searches for one kind of role and applies on your behalf."),
-		placeholder("/hunts/new", "New Hunt", "Creating a Hunt is not available yet."),
+		createRoute({ getParentRoute: () => appRoute, path: "/hunts", component: HuntsScreen }),
+		createRoute({ getParentRoute: () => appRoute, path: "/hunts/new", component: NewHuntScreen }),
+		createRoute({ getParentRoute: () => appRoute, path: "/hunts/$huntId", component: HuntScreen }),
+		createRoute({ getParentRoute: () => appRoute, path: "/hunts/$huntId/edit", component: EditHuntScreen }),
 		placeholder("/applications", "Applications", "No Applications yet."),
 		placeholder("/candidate", "Candidate", "Your documents, facts and standing answers will live here."),
 		placeholder("/settings", "Settings", "Submission mode, AI keys and spend, and alerts will live here."),
