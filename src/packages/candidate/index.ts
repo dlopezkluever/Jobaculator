@@ -3,6 +3,29 @@ import type { Executor } from "../db/index";
 import type { UserId } from "../db/ownership";
 import { candidate } from "./lib/schema";
 
+export {
+	type CandidateChannel,
+	type EntryRef,
+	KnowledgeBaseError,
+	type ProposalOutcome,
+	type ProposalSource,
+	type ProposedFact,
+	proposeFacts,
+	removeEntry,
+	removeFact,
+} from "./lib/propose";
+export {
+	buildCandidateContext,
+	type CandidateContext,
+	type ContextFact,
+	DEFAULT_CONTEXT_BUDGET_TOKENS,
+	type Entry,
+	type Fact,
+	getKnowledgeBase,
+	type KnowledgeBase,
+} from "./lib/read";
+export type { StoredSource } from "./lib/schema";
+
 export type Candidate = { id: string; createdAt: Date };
 
 /** Creates the User's Candidate. Called in the same transaction that creates the User (1:1). */

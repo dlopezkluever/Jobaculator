@@ -13,6 +13,7 @@ import {
 	updateHunt,
 } from "../packages/hunts/index";
 import { WORKER_LOCK_KEY } from "../packages/jobs/index";
+import { candidateRouter } from "./candidate";
 import { authedProcedure, router } from "./trpc";
 
 const huntId = z.object({ id: z.uuid() });
@@ -69,6 +70,7 @@ export const appRouter = router({
 			.input(huntId.extend({ status: z.enum(HUNT_STATUSES) }))
 			.mutation(async ({ ctx, input }) => found(await setHuntStatus(ctx.db, ctx.userId, input.id, input.status))),
 	}),
+	candidate: candidateRouter,
 });
 
 export type AppRouter = typeof appRouter;
