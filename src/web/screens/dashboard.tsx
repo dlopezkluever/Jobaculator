@@ -3,10 +3,12 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { trpc } from "../lib/trpc";
+import { StatusPill } from "./hunt";
 
 /** The overview (#30): confirmed Submitted first, then what is in flight, then what needs attention. */
 export function DashboardScreen() {
 	const { data } = useQuery(trpc.dashboard.summary.queryOptions());
+	const hunts = useQuery(trpc.hunts.list.queryOptions());
 	const count = (value: number | undefined) => (value === undefined ? "–" : value.toLocaleString());
 
 	return (
@@ -52,9 +54,21 @@ export function DashboardScreen() {
 				<Card>
 					<CardHeader>
 						<CardTitle>Hunt health</CardTitle>
-						<CardDescription>No Hunts yet.</CardDescription>
+						{hunts.data?.length === 0 && <CardDescription>No Hunts yet.</CardDescription>}
 					</CardHeader>
-					<CardContent>
+					<CardContent className="space-y-3">
+						{hunts.data && hunts.data.length > 0 && (
+							<ul className="space-y-1.5 text-sm">
+								{hunts.data.map((hunt) => (
+									<li key={hunt.id} className="flex items-center justify-between gap-2">
+										<Link to="/hunts/$huntId" params={{ huntId: hunt.id }} className="font-medium hover:underline">
+											{hunt.name}
+										</Link>
+										<StatusPill status={hunt.status} />
+									</li>
+								))}
+							</ul>
+						)}
 						<Button asChild variant="outline" size="sm">
 							<Link to="/hunts/new">New Hunt</Link>
 						</Button>

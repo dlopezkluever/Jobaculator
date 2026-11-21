@@ -14,6 +14,7 @@ const STATUS_POLL_MS = 15_000;
 export function AppShell() {
 	const status = useQuery({ ...trpc.system.status.queryOptions(), refetchInterval: STATUS_POLL_MS });
 	const summary = useQuery(trpc.dashboard.summary.queryOptions());
+	const hunts = useQuery(trpc.hunts.list.queryOptions());
 	const inboxTotal = summary.data
 		? summary.data.attention.needsYou + summary.data.attention.review + summary.data.attention.uncertain
 		: 0;
@@ -26,7 +27,25 @@ export function AppShell() {
 					<NavItem to="/" icon={<LayoutDashboard />} label="Dashboard" />
 					<NavItem to="/inbox" icon={<Inbox />} label="Inbox" badge={inboxTotal} />
 					<NavItem to="/hunts" icon={<Target />} label="Hunts" />
-					{/* One entry per Hunt goes here, each with its health dot and submitted-today count. */}
+					{/* Hunt health (§15) and submitted-today counts replace the status dot once Matches and Applications exist. */}
+					{hunts.data?.map((hunt) => (
+						<NavItem
+							key={hunt.id}
+							to={`/hunts/${hunt.id}`}
+							icon={
+								<span
+									role="img"
+									aria-label={hunt.status === "ACTIVE" ? "Active" : "Paused"}
+									className={cn(
+										"mx-1 size-2 shrink-0 rounded-full",
+										hunt.status === "ACTIVE" ? "bg-success" : "bg-muted-foreground/40",
+									)}
+								/>
+							}
+							label={hunt.name}
+							className="pl-8"
+						/>
+					))}
 					<NavItem to="/hunts/new" icon={<Plus />} label="New Hunt" className="pl-8 text-muted-foreground" />
 					<NavItem to="/applications" icon={<FileText />} label="Applications" />
 					<NavItem to="/candidate" icon={<UserRound />} label="Candidate" />
@@ -76,7 +95,9 @@ function NavItem({
 			)}
 		>
 			{icon}
-			<span className="flex-1">{label}</span>
+			<span className="min-w-0 flex-1 truncate" title={label}>
+				{label}
+			</span>
 			{badge > 0 && (
 				<span className="rounded-full bg-primary px-1.5 text-xs font-medium text-primary-foreground">{badge}</span>
 			)}
