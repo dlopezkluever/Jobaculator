@@ -42,13 +42,33 @@ export function createJobs(options: {
 	databaseUrl: string;
 	queues: readonly Queue[];
 	onError?: (error: Error) => void;
+	/**
+	 * For `web`, which sends jobs and never consumes them (§3): no schema install, queue
+	 * creation, maintenance or schedules (the worker owns those), and pg-boss starts on the
+	 * first `send`, so `web` starts even before the worker has installed it.
+	 */
+	sendOnly?: boolean;
 }): Jobs {
-	const boss = new PgBoss({ connectionString: options.databaseUrl });
+	const sendOnly = options.sendOnly ?? false;
+	const boss = new PgBoss({
+		connectionString: options.databaseUrl,
+		...(sendOnly ? { supervise: false, schedule: false, migrate: false, createSchema: false } : {}),
+	});
 	boss.on("error", (error: Error) => options.onError?.(error));
+
+	let started: Promise<unknown> | null = null;
+	const ensureStarted = () => {
+		started ??= boss.start().catch((error: unknown) => {
+			started = null;
+			throw error;
+		});
+		return started;
+	};
 
 	return {
 		async start() {
-			await boss.start();
+			await ensureStarted();
+			if (sendOnly) return;
 			const existing = new Set((await boss.getQueues()).map((queue) => queue.name));
 			for (const queue of options.queues) {
 				if (!existing.has(queue.name)) await boss.createQueue(queue.name);
@@ -56,6 +76,7 @@ export function createJobs(options: {
 		},
 		async send(queue, payload, sendOptions = {}) {
 			const data = queue.schema.parse(payload);
+			if (sendOnly) await ensureStarted();
 			return sendOptions.tx
 				? boss.send(queue.name, data, { db: fromDrizzle(sendOptions.tx, sql) })
 				: boss.send(queue.name, data);

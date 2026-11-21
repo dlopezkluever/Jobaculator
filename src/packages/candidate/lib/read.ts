@@ -97,7 +97,7 @@ export type CandidateContext = {
 	entries: { id: string; kind: EntryKind; parentId: string | null; facts: ContextFact[] }[];
 	/** Values generation must use exactly as stated, never alter or choose between (#10). */
 	authoritativeFacts: (ContextFact & { entryId: string | null })[];
-	/** Base Resumes are seeded from uploaded resumes, which arrive with document upload (#37); none exist yet. */
+	/** Base Resumes (seeded from uploaded resumes, §8) are not built yet. */
 	baseResume: null;
 	budget: { limitTokens: number; usedTokens: number; omittedFactIds: string[] };
 };

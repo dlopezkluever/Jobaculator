@@ -4,6 +4,17 @@ import type { UserId } from "../db/ownership";
 import { candidate } from "./lib/schema";
 
 export {
+	addDocument,
+	DOCUMENT_LIMITS,
+	type Document,
+	DocumentError,
+	type DocumentUpload,
+	EXTRACT_DOCUMENT,
+	listDocuments,
+	retryDocument,
+} from "./lib/documents";
+export { extractDocument } from "./lib/extract";
+export {
 	type CandidateChannel,
 	type EntryRef,
 	KnowledgeBaseError,
@@ -24,7 +35,7 @@ export {
 	getKnowledgeBase,
 	type KnowledgeBase,
 } from "./lib/read";
-export type { StoredSource } from "./lib/schema";
+export type { DocumentFormat, DocumentStatus, StoredSource } from "./lib/schema";
 
 export type Candidate = { id: string; createdAt: Date };
 

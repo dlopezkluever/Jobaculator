@@ -1,8 +1,11 @@
-import { purgeExpiredPayloads } from "./packages/ai/index";
+import { createLlmClient, purgeExpiredPayloads } from "./packages/ai/index";
+import { EXTRACT_DOCUMENT, extractDocument } from "./packages/candidate/index";
 import { loadConfig } from "./packages/config/index";
 import { createDatabase, trySessionLock } from "./packages/db/index";
 import { createJobs, WORKER_LOCK_KEY } from "./packages/jobs/index";
 import { createLogger } from "./packages/log/index";
+import { createSecrets } from "./packages/secrets/index";
+import { createStorage } from "./packages/storage/index";
 
 // The `worker` process: hosts every pg-boss consumer and schedule (§3).
 // Exactly one runs at a time, enforced by a Postgres advisory lock (§17).
@@ -21,16 +24,24 @@ if (!lock) {
 	process.exit(1);
 }
 
+const database = createDatabase(config.databaseUrl, { max: 4 });
+const secrets = createSecrets([{ version: 1, key: config.masterKey }]);
+const storage = createStorage(config.dataDir);
+const llm = createLlmClient({ db: database.db, secrets, log });
+
 const jobs = createJobs({
 	databaseUrl: config.databaseUrl,
-	queues: [],
+	queues: [EXTRACT_DOCUMENT],
 	onError: (error) => log.error({ err: error, event: "jobs_error" }),
 });
 await jobs.start();
-// Consumers are registered here as later tickets add queues.
+await jobs.work(
+	EXTRACT_DOCUMENT,
+	({ userId, documentId }) => extractDocument({ db: database.db, storage, llm, log }, userId, documentId),
+	{ localConcurrency: 2 },
+);
 
 // AI prompts and outputs are kept 14 days (§12); the ledger rows stay.
-const database = createDatabase(config.databaseUrl, { max: 2 });
 async function purgePayloads() {
 	try {
 		const removed = await purgeExpiredPayloads(database.db);
