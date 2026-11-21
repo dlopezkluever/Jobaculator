@@ -1,15 +1,19 @@
 import { randomBytes } from "node:crypto";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Writable } from "node:stream";
 import { sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createCandidate } from "../packages/candidate/index";
+import { createCandidate, EXTRACT_DOCUMENT } from "../packages/candidate/index";
 import { trySessionLock } from "../packages/db/index";
 import { createTestDatabase, type TestDatabase } from "../packages/db/testing";
-import { WORKER_LOCK_KEY } from "../packages/jobs/index";
+import { createJobs, type Jobs, WORKER_LOCK_KEY } from "../packages/jobs/index";
 import { createLogger } from "../packages/log/index";
 import { Secret } from "../packages/log/secret";
 import { createSecrets } from "../packages/secrets/index";
+import { createStorage } from "../packages/storage/index";
 import { createUser, createUsers, resetPassword } from "../packages/users/index";
 import { createApp } from "./app";
 import { CSRF_HEADER } from "./csrf";
@@ -19,9 +23,15 @@ const EMAIL = "dana@example.com";
 const PASSWORD = "correct horse battery";
 
 let database: TestDatabase;
+let jobs: Jobs;
 let app: Hono;
 beforeAll(async () => {
 	database = await createTestDatabase();
+	// The worker installs pg-boss and creates the queues; `web` only sends.
+	const worker = createJobs({ databaseUrl: database.url, queues: [EXTRACT_DOCUMENT] });
+	await worker.start();
+	await worker.stop({ timeoutMs: 1000 });
+	jobs = createJobs({ databaseUrl: database.url, queues: [EXTRACT_DOCUMENT], sendOnly: true });
 	const log = createLogger({ destination: new Writable({ write: (_chunk, _encoding, done) => done() }) });
 	const users = createUsers({
 		db: database.db,
@@ -32,6 +42,8 @@ beforeAll(async () => {
 	app = createApp({
 		db: database.db,
 		secrets: createSecrets([{ version: 1, key: new Secret(randomBytes(32)) }]),
+		storage: createStorage(mkdtempSync(join(tmpdir(), "blobs-"))),
+		jobs,
 		users,
 		origin: ORIGIN,
 		log,
@@ -40,7 +52,10 @@ beforeAll(async () => {
 		await createCandidate(tx, await createUser(tx, { email: EMAIL, name: "Dana", password: PASSWORD }));
 	});
 });
-afterAll(() => database.close());
+afterAll(async () => {
+	await jobs.stop({ timeoutMs: 1000 });
+	await database.close();
+});
 
 let clientIp = 0;
 /** A distinct client per test, so the per-IP sign-in rate limit of one test does not reach another. */
@@ -53,11 +68,12 @@ function client() {
 	) => {
 		const headers: Record<string, string> = { "x-forwarded-for": ip, ...init.headers };
 		if (cookie) headers.cookie = cookie;
-		if (init.body !== undefined) headers["content-type"] = "application/json";
+		const form = init.body instanceof FormData;
+		if (init.body !== undefined && !form) headers["content-type"] = "application/json";
 		const response = await app.request(`${ORIGIN}${path}`, {
 			method: init.method ?? "GET",
 			headers,
-			body: init.body === undefined ? undefined : JSON.stringify(init.body),
+			body: init.body === undefined ? undefined : form ? (init.body as FormData) : JSON.stringify(init.body),
 		});
 		const set = response.headers.getSetCookie().map((c) => c.split(";")[0] ?? "");
 		if (set.length > 0) cookie = set.join("; ");
@@ -272,5 +288,42 @@ describe("AI settings", () => {
 			dailyCapUsd: 2.5,
 			spentTodayUsd: 0,
 		});
+	});
+});
+
+describe("document upload", () => {
+	const file = (name: string, content: string) => {
+		const form = new FormData();
+		form.set("file", new File([content], name));
+		return form;
+	};
+	const upload = (user: ReturnType<typeof client>, form: FormData) =>
+		user.request("/api/candidate/documents", {
+			method: "POST",
+			body: form,
+			headers: { origin: ORIGIN, [CSRF_HEADER]: "1" },
+		});
+
+	it("takes one file per request from a signed-in Candidate and queues it, skipping the same bytes pasted later", async () => {
+		expect((await upload(client(), file("resume.md", "# Dana Reyes"))).status).toBe(401);
+
+		const user = client();
+		await user.signIn();
+		const refused = await upload(user, file("photo.png", "png"));
+		expect(refused.status).toBe(400);
+		expect(await refused.json()).toEqual({ error: "Only PDF, DOCX, TXT and Markdown files are accepted." });
+
+		const uploaded = await upload(user, file("resume.md", "# Dana Reyes"));
+		expect(uploaded.status).toBe(200);
+		expect(await uploaded.json()).toMatchObject({
+			duplicate: false,
+			document: { filename: "resume.md", format: "markdown", status: "queued" },
+		});
+		const queued = await database.db.execute(sql`select 1 from pgboss.job where name = ${EXTRACT_DOCUMENT.name}`);
+		expect(queued.rows).toHaveLength(1);
+
+		const pasted = await user.mutation("/api/trpc/candidate.documents.paste", { text: "# Dana Reyes\n" });
+		expect(((await pasted.json()) as { result: { data: unknown } }).result.data).toMatchObject({ duplicate: true });
+		expect((await user.query("candidate.documents.list")).data).toMatchObject([{ filename: "resume.md" }]);
 	});
 });

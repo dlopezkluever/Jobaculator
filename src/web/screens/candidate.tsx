@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { inferRouterOutputs } from "@trpc/server";
-import { AlertTriangle, Lock, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Lock, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Tabs } from "radix-ui";
 import type * as React from "react";
 import { type FormEvent, useState } from "react";
@@ -20,6 +20,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { trpc } from "../lib/trpc";
 import { cn } from "../lib/utils";
+import { DocumentsCard, useDocuments } from "./documents";
 
 type KnowledgeBase = inferRouterOutputs<AppRouter>["candidate"]["knowledgeBase"];
 type Fact = KnowledgeBase["facts"][number];
@@ -70,6 +71,8 @@ export function CandidateScreen() {
 				) : (
 					<>
 						<Tabs.Content value="profile" className="space-y-5">
+							<DocumentsCard />
+							<CheckTheEssentials kb={kb} />
 							<AboutYou facts={kb.facts} />
 							<CandidateDetails facts={kb.facts} />
 						</Tabs.Content>
@@ -111,6 +114,61 @@ function Tab({ value, label, count = 0 }: { value: string; label: string; count?
 				</span>
 			)}
 		</Tabs.Trigger>
+	);
+}
+
+const ESSENTIALS_DISMISSED = "jobaculator.essentials-dismissed";
+
+/**
+ * Check the essentials (#21): the Authoritative Facts documents established and the
+ * unresolved conflicts between authoritative values, to correct in place. Optional and
+ * dismissible; it comes back only when something new appears in it.
+ */
+function CheckTheEssentials({ kb }: { kb: KnowledgeBase }) {
+	const [dismissed, setDismissed] = useState<string[]>(() => {
+		try {
+			return JSON.parse(localStorage.getItem(ESSENTIALS_DISMISSED) ?? "[]") as string[];
+		} catch {
+			return [];
+		}
+	});
+	const essential = (fact: Fact) =>
+		(fact.authoritative && !fact.verified) || (factKind(fact.kind).authoritative && fact.conflictsWith.length > 0);
+	const groups = [
+		{ id: "candidate", title: "About you", facts: kb.facts.filter(essential) },
+		...kb.entries.map((entry) => ({ id: entry.id, title: entryTitle(entry), facts: entry.facts.filter(essential) })),
+	].filter((group) => group.facts.length > 0);
+	const ids = groups.flatMap((group) => group.facts.map((fact) => fact.id));
+	if (ids.every((id) => dismissed.includes(id))) return null;
+
+	function dismiss() {
+		localStorage.setItem(ESSENTIALS_DISMISSED, JSON.stringify(ids));
+		setDismissed(ids);
+	}
+
+	return (
+		<Card className="border-primary/40">
+			<CardHeader className="flex-row items-start justify-between gap-4">
+				<div className="space-y-1">
+					<CardTitle>Check the essentials</CardTitle>
+					<CardDescription>
+						Your documents gave these details, and every Application uses them exactly as written. Correct anything that
+						is wrong; there is nothing to confirm.
+					</CardDescription>
+				</div>
+				<Button variant="ghost" size="sm" className="text-muted-foreground" onClick={dismiss}>
+					<X /> Dismiss
+				</Button>
+			</CardHeader>
+			<CardContent className="space-y-4">
+				{groups.map((group) => (
+					<div key={group.id} className="space-y-1.5">
+						<div className="text-xs font-medium text-muted-foreground">{group.title}</div>
+						<FactList facts={group.facts} empty="" />
+					</div>
+				))}
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -361,10 +419,25 @@ const PROVENANCE: Record<Fact["provenance"], string> = {
 	AI_INFERRED: "Inferred",
 };
 
+/** Where a Fact came from, naming its documents once they are known. */
+function useProvenance(fact: Fact): string {
+	const documents = useDocuments().data ?? [];
+	const names = [
+		...new Set(
+			fact.sources.flatMap((source) =>
+				source.kind === "document" ? (documents.find((d) => d.id === source.documentId)?.filename ?? []) : [],
+			),
+		),
+	];
+	if (fact.provenance === "USER_EXPLICIT" || names.length === 0) return PROVENANCE[fact.provenance];
+	return `${fact.provenance === "AI_INFERRED" ? "Inferred from" : "From"} ${names.join(" and ")}`;
+}
+
 function FactRow({ fact }: { fact: Fact }) {
 	const { propose, removeFact } = useKnowledgeBase();
 	const [editing, setEditing] = useState(false);
 	const kind = factKind(fact.kind);
+	const provenance = useProvenance(fact);
 
 	function onSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -396,7 +469,7 @@ function FactRow({ fact }: { fact: Fact }) {
 					<div className="min-w-0 flex-1 space-y-1 pt-1">
 						<div className="whitespace-pre-wrap break-words">{fact.value}</div>
 						<div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-							<span>{PROVENANCE[fact.provenance]}</span>
+							<span>{provenance}</span>
 							{fact.authoritative && (
 								<span className="flex items-center gap-1" title="Used exactly as stated; only you can change it">
 									<Lock className="size-3" /> Authoritative

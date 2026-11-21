@@ -4,6 +4,7 @@ import {
 	boolean,
 	foreignKey,
 	index,
+	integer,
 	jsonb,
 	pgTable,
 	text,
@@ -11,6 +12,7 @@ import {
 	unique,
 	uuid,
 } from "drizzle-orm/pg-core";
+import { blob } from "../../storage/tables";
 import { user } from "../../users/tables";
 import type { Provenance } from "../kinds";
 
@@ -85,4 +87,36 @@ export const candidateFact = pgTable(
 		}),
 		index("candidate_fact_slot_idx").on(t.userId, t.entryId, t.kind),
 	],
+);
+
+export type DocumentFormat = "pdf" | "docx" | "text" | "markdown";
+/** `queued` → `extracting` → `extracted` or `failed`; a failed document can be queued again. */
+export type DocumentStatus = "queued" | "extracting" | "extracted" | "failed";
+
+/**
+ * A document the Candidate uploaded or pasted (#21). Its original bytes are a permanent
+ * blob; the same bytes twice are one document per Candidate. No versions.
+ */
+export const candidateDocument = pgTable(
+	"candidate_document",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => candidate.userId, { onDelete: "cascade" }),
+		blobHash: text("blob_hash")
+			.notNull()
+			.references(() => blob.hash),
+		filename: text("filename").notNull(),
+		format: text("format").$type<DocumentFormat>().notNull(),
+		status: text("status").$type<DocumentStatus>().notNull().default("queued"),
+		/** Why extraction failed, written for the Candidate. */
+		error: text("error"),
+		/** Something the Candidate should know about an extracted document, such as a PDF with no text layer. */
+		note: text("note"),
+		factCount: integer("fact_count"),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+		extractedAt: timestamp("extracted_at", { withTimezone: true }),
+	},
+	(t) => [unique("candidate_document_user_blob_key").on(t.userId, t.blobHash)],
 );

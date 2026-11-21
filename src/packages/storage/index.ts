@@ -51,7 +51,8 @@ export function createStorage(root: string): Storage {
 			await mkdir(dir, { recursive: true });
 			const temp = join(dir, `.tmp-${randomUUID()}`);
 			try {
-				const file = await open(temp, "wx", 0o600);
+				// Group-readable: `web` writes uploads that `worker`, another OS user in the shared group, reads.
+				const file = await open(temp, "wx", 0o640);
 				try {
 					await file.writeFile(bytes);
 					await file.sync();

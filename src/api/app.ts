@@ -2,13 +2,14 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
-import type { Db } from "../packages/db/index";
+import { addDocument, DOCUMENT_LIMITS, DocumentError } from "../packages/candidate/index";
 import type { Logger } from "../packages/log/index";
-import type { Secrets } from "../packages/secrets/index";
 import { AUTH_BASE_PATH, type Users } from "../packages/users/index";
 import { csrfProtection } from "./csrf";
 import { appRouter } from "./router";
+import type { Services } from "./trpc";
 
 const TRPC_ENDPOINT = "/api/trpc";
 
@@ -16,15 +17,15 @@ const TRPC_ENDPOINT = "/api/trpc";
  * The `web` HTTP surface: health, auth routes, the tRPC API and the built SPA, behind
  * strict security headers and CSRF protection on every state-changing /api request.
  */
-export function createApp(deps: {
-	db: Db;
-	secrets: Secrets;
-	users: Users;
-	origin: string;
-	log: Logger;
-	spaRoot?: string;
-}): Hono {
-	const { db, secrets, users, log } = deps;
+export function createApp(
+	deps: Services & {
+		users: Users;
+		origin: string;
+		log: Logger;
+		spaRoot?: string;
+	},
+): Hono {
+	const { db, secrets, storage, jobs, users, log } = deps;
 	const app = new Hono();
 
 	app.use(
@@ -65,11 +66,39 @@ export function createApp(deps: {
 			endpoint: TRPC_ENDPOINT,
 			req: c.req.raw,
 			router: appRouter,
-			createContext: async () => ({ db, secrets, userId: (await users.getSession(c.req.raw))?.userId ?? null }),
+			createContext: async () => ({
+				db,
+				secrets,
+				storage,
+				jobs,
+				userId: (await users.getSession(c.req.raw))?.userId ?? null,
+			}),
 			onError: ({ error, path }) => {
 				if (error.code === "INTERNAL_SERVER_ERROR") log.error({ err: error, event: "trpc_error", path });
 			},
 		}),
+	);
+	// One file per request, so `web` never holds a whole batch in memory.
+	app.post(
+		"/api/candidate/documents",
+		bodyLimit({
+			maxSize: DOCUMENT_LIMITS.maxBytes + 64 * 1024,
+			onError: (c) => c.json({ error: "The file is larger than 10 MB." }, 413),
+		}),
+		async (c) => {
+			const session = await users.getSession(c.req.raw);
+			if (!session) return c.json({ error: "unauthorized" }, 401);
+			const file = (await c.req.formData().catch(() => null))?.get("file");
+			if (!(file instanceof File)) return c.json({ error: "Send one file in the `file` field." }, 400);
+			try {
+				const bytes = Buffer.from(await file.arrayBuffer());
+				return c.json(await addDocument(deps, session.userId, { filename: file.name, bytes }));
+			} catch (error) {
+				if (error instanceof DocumentError) return c.json({ error: error.message }, 400);
+				log.error({ err: error, event: "document_upload_failed" });
+				return c.json({ error: "The upload failed. Try again." }, 500);
+			}
+		},
 	);
 	app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 

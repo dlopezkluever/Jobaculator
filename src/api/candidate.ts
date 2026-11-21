@@ -1,11 +1,15 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
+	addDocument,
+	DocumentError,
 	getKnowledgeBase,
 	KnowledgeBaseError,
+	listDocuments,
 	proposeFacts,
 	removeEntry,
 	removeFact,
+	retryDocument,
 } from "../packages/candidate/index";
 import { ENTRY_KINDS } from "../packages/candidate/kinds";
 import { authedProcedure, router } from "./trpc";
@@ -35,7 +39,7 @@ async function guarded<T>(run: () => Promise<T>): Promise<T> {
 	try {
 		return await run();
 	} catch (error) {
-		if (error instanceof KnowledgeBaseError) {
+		if (error instanceof KnowledgeBaseError || error instanceof DocumentError) {
 			throw new TRPCError({ code: error.code === "NOT_FOUND" ? "NOT_FOUND" : "BAD_REQUEST", message: error.message });
 		}
 		throw error;
@@ -55,4 +59,14 @@ export const candidateRouter = router({
 	removeEntry: authedProcedure
 		.input(z.object({ entryId: z.uuid() }))
 		.mutation(({ ctx, input }) => guarded(() => removeEntry(ctx.db, ctx.userId, input.entryId))),
+	/** Files arrive through `POST /api/candidate/documents` (multipart, one per request); pasted text comes here. */
+	documents: router({
+		list: authedProcedure.query(({ ctx }) => listDocuments(ctx.db, ctx.userId)),
+		paste: authedProcedure
+			.input(z.object({ text: z.string().max(1_000_000) }))
+			.mutation(({ ctx, input }) => guarded(() => addDocument(ctx, ctx.userId, { pastedText: input.text }))),
+		retry: authedProcedure
+			.input(z.object({ documentId: z.uuid() }))
+			.mutation(({ ctx, input }) => guarded(() => retryDocument(ctx, ctx.userId, input.documentId))),
+	}),
 });

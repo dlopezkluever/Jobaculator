@@ -1,10 +1,13 @@
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createApp } from "./api/app";
+import { EXTRACT_DOCUMENT } from "./packages/candidate/index";
 import { loadConfig } from "./packages/config/index";
 import { createDatabase } from "./packages/db/index";
+import { createJobs } from "./packages/jobs/index";
 import { createLogger } from "./packages/log/index";
 import { createSecrets } from "./packages/secrets/index";
+import { createStorage } from "./packages/storage/index";
 import { createUsers } from "./packages/users/index";
 
 // The `web` process: Hono host for auth, the tRPC API and the SPA. Sends jobs, never consumes them (§3).
@@ -13,10 +16,17 @@ const log = createLogger({ level: config.logLevel });
 const database = createDatabase(config.databaseUrl);
 const secrets = createSecrets([{ version: 1, key: config.masterKey }]);
 const users = createUsers({ db: database.db, origin: config.web.origin, secret: config.authSecret, log });
+const storage = createStorage(config.dataDir);
+const jobs = createJobs({
+	databaseUrl: config.databaseUrl,
+	queues: [EXTRACT_DOCUMENT],
+	sendOnly: true,
+	onError: (error) => log.error({ err: error, event: "jobs_error" }),
+});
 
 // `dist/web` beside the entry point: built by `pnpm build:web` in a checkout, shipped in the release.
 const spaRoot = fileURLToPath(new URL("../dist/web", import.meta.url));
-const app = createApp({ db: database.db, secrets, users, origin: config.web.origin, log, spaRoot });
+const app = createApp({ db: database.db, secrets, storage, jobs, users, origin: config.web.origin, log, spaRoot });
 
 const server = serve({ fetch: app.fetch, hostname: config.web.host, port: config.web.port }, (info) =>
 	log.info({ event: "web_started", port: info.port }),
@@ -28,6 +38,7 @@ async function shutdown(signal: string) {
 	stopping = true;
 	log.info({ event: "web_stopping", signal });
 	await new Promise<void>((resolve) => server.close(() => resolve()));
+	await jobs.stop({ timeoutMs: 5_000 });
 	await database.close();
 	log.info({ event: "web_stopped" });
 	process.exit(0);
