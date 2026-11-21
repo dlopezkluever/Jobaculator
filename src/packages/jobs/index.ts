@@ -12,10 +12,19 @@ export const WORKER_LOCK_KEY = 0x4a4f42574b52n; // "JOBWKR"
  * handlers load records by `(id, user_id)`. Jobs are disposable nudges: state rows
  * are the truth (ADR 0004).
  */
-export type Queue<S extends z.ZodObject = z.ZodObject> = { name: string; schema: S };
+export type Queue<S extends z.ZodObject = z.ZodObject> = {
+	name: string;
+	schema: S;
+	/** `exclusive`: at most one job per `singletonKey` is queued or running; a send while one is returns null. */
+	policy?: "standard" | "exclusive";
+};
 
-export function defineQueue<const Shape extends z.ZodRawShape>(name: string, shape: Shape) {
-	return { name, schema: z.object({ userId: userIdSchema, ...shape }) };
+export function defineQueue<const Shape extends z.ZodRawShape>(
+	name: string,
+	shape: Shape,
+	options: { policy?: Queue["policy"] } = {},
+) {
+	return { name, schema: z.object({ userId: userIdSchema, ...shape }), policy: options.policy ?? "standard" };
 }
 
 export type Payload<Q extends Queue> = z.output<Q["schema"]>;
@@ -27,12 +36,20 @@ export type Jobs = {
 	 * Validates and enqueues. Pass `tx` to enqueue in the caller's transaction, so a
 	 * state change and its next job commit together.
 	 */
-	send<Q extends Queue>(queue: Q, payload: Payload<Q>, options?: { tx?: Tx }): Promise<string | null>;
+	send<Q extends Queue>(
+		queue: Q,
+		payload: Payload<Q>,
+		options?: { tx?: Tx; singletonKey?: string },
+	): Promise<string | null>;
 	/** Consumes jobs one at a time; a payload that fails validation fails the job without calling `handler`. */
 	work<Q extends Queue>(
 		queue: Q,
 		handler: (payload: Payload<Q>, job: { id: string }) => Promise<void>,
-		options?: { localConcurrency?: number },
+		/**
+		 * `burst`: while the queue has a backlog, fetch the next job at once instead of after the
+		 * 2 s polling interval (pg-boss notices a backlog within its ~60 s stats cycle).
+		 */
+		options?: { localConcurrency?: number; burst?: boolean },
 	): Promise<void>;
 	/** Stops fetching and waits up to `timeoutMs` for running handlers. */
 	stop(options?: { timeoutMs?: number }): Promise<void>;
@@ -71,20 +88,25 @@ export function createJobs(options: {
 			if (sendOnly) return;
 			const existing = new Set((await boss.getQueues()).map((queue) => queue.name));
 			for (const queue of options.queues) {
-				if (!existing.has(queue.name)) await boss.createQueue(queue.name);
+				if (!existing.has(queue.name)) await boss.createQueue(queue.name, { policy: queue.policy ?? "standard" });
 			}
 		},
 		async send(queue, payload, sendOptions = {}) {
 			const data = queue.schema.parse(payload);
 			if (sendOnly) await ensureStarted();
-			return sendOptions.tx
-				? boss.send(queue.name, data, { db: fromDrizzle(sendOptions.tx, sql) })
-				: boss.send(queue.name, data);
+			return boss.send(queue.name, data, {
+				...(sendOptions.tx ? { db: fromDrizzle(sendOptions.tx, sql) } : {}),
+				...(sendOptions.singletonKey ? { singletonKey: sendOptions.singletonKey } : {}),
+			});
 		},
 		async work(queue, handler, workOptions = {}) {
 			await boss.work(
 				queue.name,
-				{ batchSize: 1, localConcurrency: workOptions.localConcurrency ?? 1 },
+				{
+					batchSize: 1,
+					localConcurrency: workOptions.localConcurrency ?? 1,
+					...(workOptions.burst ? { burstWhenReadyExceeds: 1 } : {}),
+				},
 				async ([job]) => {
 					if (!job) return;
 					await handler(queue.schema.parse(job.data) as Payload<typeof queue>, { id: job.id });

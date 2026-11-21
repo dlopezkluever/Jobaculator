@@ -30,6 +30,16 @@ const settingsSchema = z.object({
 	WEB_ORIGIN: z.url({ protocol: /^https?$/ }).default("http://localhost:3000"),
 });
 
+/**
+ * The global seed list of Boards every User watches (§6, ADR 0006: shared configuration).
+ * Tracer Bullet 1 polls these hand-picked Greenhouse Boards, verified live.
+ */
+export const SEED_BOARDS = [
+	{ source: "greenhouse", token: "anthropic", employer: "Anthropic" },
+	{ source: "greenhouse", token: "figma", employer: "Figma" },
+	{ source: "greenhouse", token: "stripe", employer: "Stripe" },
+] as const;
+
 type RoleCredentials<R extends Role> = (typeof ROLE_CREDENTIALS)[R][number];
 
 export type Config<R extends Role = Role> = {

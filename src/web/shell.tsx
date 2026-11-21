@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
-import { FileText, Inbox, LayoutDashboard, LogOut, Plus, Settings, Target, UserRound } from "lucide-react";
+import { Briefcase, FileText, Inbox, LayoutDashboard, LogOut, Plus, Settings, Target, UserRound } from "lucide-react";
 import type * as React from "react";
 import type { SubmissionMode } from "../api/router";
 import { Button } from "./components/ui/button";
@@ -47,6 +47,7 @@ export function AppShell() {
 						/>
 					))}
 					<NavItem to="/hunts/new" icon={<Plus />} label="New Hunt" className="pl-8 text-muted-foreground" />
+					<NavItem to="/opportunities" icon={<Briefcase />} label="Opportunities" />
 					<NavItem to="/applications" icon={<FileText />} label="Applications" />
 					<NavItem to="/candidate" icon={<UserRound />} label="Candidate" />
 					<NavItem to="/settings" icon={<Settings />} label="Settings" />
