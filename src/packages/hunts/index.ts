@@ -67,6 +67,22 @@ export async function listHunts(exec: Executor, owner: UserId): Promise<Hunt[]> 
 	return exec.select(columns).from(hunt).where(eq(hunt.userId, owner)).orderBy(asc(hunt.createdAt), asc(hunt.id));
 }
 
+/** Whether the owner has any ACTIVE Hunt: discovery polls their Boards only then (ADR 0007). */
+export async function hasActiveHunt(exec: Executor, owner: UserId): Promise<boolean> {
+	const [found] = await exec
+		.select({ id: hunt.id })
+		.from(hunt)
+		.where(and(eq(hunt.userId, owner), eq(hunt.status, "ACTIVE")))
+		.limit(1);
+	return found !== undefined;
+}
+
+/** Every User with an ACTIVE Hunt: the discovery schedule's one read across Users. */
+export async function usersWithActiveHunts(exec: Executor): Promise<UserId[]> {
+	const rows = await exec.selectDistinct({ userId: hunt.userId }).from(hunt).where(eq(hunt.status, "ACTIVE"));
+	return rows.map((row) => row.userId as UserId);
+}
+
 /** One of the owner's Hunts, or null when it does not exist or belongs to another User. */
 export async function getHunt(exec: Executor, owner: UserId, id: string): Promise<Hunt | null> {
 	const [found] = await exec

@@ -6,6 +6,7 @@ import { DashboardScreen } from "./screens/dashboard";
 import { HuntScreen, HuntsScreen } from "./screens/hunt";
 import { EditHuntScreen, NewHuntScreen } from "./screens/hunt-form";
 import { LoginScreen } from "./screens/login";
+import { OpportunitiesScreen } from "./screens/opportunities";
 import { PlaceholderScreen } from "./screens/placeholder";
 import { SettingsScreen } from "./screens/settings";
 import { AppShell } from "./shell";
@@ -52,6 +53,7 @@ const routeTree = rootRoute.addChildren([
 		createRoute({ getParentRoute: () => appRoute, path: "/hunts/new", component: NewHuntScreen }),
 		createRoute({ getParentRoute: () => appRoute, path: "/hunts/$huntId", component: HuntScreen }),
 		createRoute({ getParentRoute: () => appRoute, path: "/hunts/$huntId/edit", component: EditHuntScreen }),
+		createRoute({ getParentRoute: () => appRoute, path: "/opportunities", component: OpportunitiesScreen }),
 		placeholder("/applications", "Applications", "No Applications yet."),
 		createRoute({ getParentRoute: () => appRoute, path: "/candidate", component: CandidateScreen }),
 		createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsScreen }),

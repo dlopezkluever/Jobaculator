@@ -12,6 +12,7 @@ import {
 	updateAiSettings,
 } from "../packages/ai/index";
 import { isSessionLockHeld } from "../packages/db/index";
+import { listOpportunities, listWatchedBoards } from "../packages/discovery/index";
 import { listEvents } from "../packages/events/index";
 import { HUNT_STATUSES, huntInputSchema } from "../packages/hunts/criteria";
 import {
@@ -116,6 +117,29 @@ export const appRouter = router({
 		setStatus: authedProcedure
 			.input(huntId.extend({ status: z.enum(HUNT_STATUSES) }))
 			.mutation(async ({ ctx, input }) => found(await setHuntStatus(ctx.db, ctx.userId, input.id, input.status))),
+	}),
+	/** Every Opportunity discovered on the User's watched Boards, with the Boards' health (§6). */
+	opportunities: router({
+		list: authedProcedure.query(async ({ ctx }) => {
+			const [opportunities, boards] = await Promise.all([
+				listOpportunities(ctx.db, ctx.userId),
+				listWatchedBoards(ctx.db, ctx.userId),
+			]);
+			const iso = (date: Date | null) => date?.toISOString() ?? null;
+			return {
+				opportunities: opportunities.map((o) => ({
+					...o,
+					postedAt: iso(o.postedAt),
+					firstSeenAt: o.firstSeenAt.toISOString(),
+				})),
+				boards: boards.map((b) => ({
+					...b,
+					lastListedAt: iso(b.lastListedAt),
+					goneAt: iso(b.goneAt),
+					nextPollAt: iso(b.nextPollAt),
+				})),
+			};
+		}),
 	}),
 	candidate: candidateRouter,
 });
