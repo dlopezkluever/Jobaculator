@@ -1,0 +1,36 @@
+{
+	"note": "Hand-authored in the Messages API's documented shape (no live key when the gateway was built). Re-record with `pnpm test:record-llm`.",
+	"interactions": [
+		{
+			"request": { "method": "POST", "url": "https://api.anthropic.com/v1/messages" },
+			"response": {
+				"status": 200,
+				"headers": { "content-type": "application/json", "request-id": "req_011CXanthropic01" },
+				"body": {
+					"id": "msg_01Structured",
+					"type": "message",
+					"role": "assistant",
+					"model": "claude-haiku-5-5",
+					"content": [
+						{
+							"type": "text",
+							"text": "{\"title\":\"Staff Engineer\",\"years\":7,\"skills\":[\"TypeScript\",\"Postgres\"]}"
+						}
+					],
+					"stop_reason": "end_turn",
+					"stop_sequence": null,
+					"usage": {
+						"input_tokens": 1200,
+						"output_tokens": 80,
+						"cache_creation_input_tokens": 0,
+						"cache_read_input_tokens": 1000,
+						"cache_creation": null,
+						"inference_geo": "global",
+						"server_tool_use": null,
+						"service_tier": "standard"
+					}
+				}
+			}
+		}
+	]
+}

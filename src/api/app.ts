@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 import type { Db } from "../packages/db/index";
 import type { Logger } from "../packages/log/index";
+import type { Secrets } from "../packages/secrets/index";
 import { AUTH_BASE_PATH, type Users } from "../packages/users/index";
 import { csrfProtection } from "./csrf";
 import { appRouter } from "./router";
@@ -15,8 +16,15 @@ const TRPC_ENDPOINT = "/api/trpc";
  * The `web` HTTP surface: health, auth routes, the tRPC API and the built SPA, behind
  * strict security headers and CSRF protection on every state-changing /api request.
  */
-export function createApp(deps: { db: Db; users: Users; origin: string; log: Logger; spaRoot?: string }): Hono {
-	const { db, users, log } = deps;
+export function createApp(deps: {
+	db: Db;
+	secrets: Secrets;
+	users: Users;
+	origin: string;
+	log: Logger;
+	spaRoot?: string;
+}): Hono {
+	const { db, secrets, users, log } = deps;
 	const app = new Hono();
 
 	app.use(
@@ -57,7 +65,7 @@ export function createApp(deps: { db: Db; users: Users; origin: string; log: Log
 			endpoint: TRPC_ENDPOINT,
 			req: c.req.raw,
 			router: appRouter,
-			createContext: async () => ({ db, userId: (await users.getSession(c.req.raw))?.userId ?? null }),
+			createContext: async () => ({ db, secrets, userId: (await users.getSession(c.req.raw))?.userId ?? null }),
 			onError: ({ error, path }) => {
 				if (error.code === "INTERNAL_SERVER_ERROR") log.error({ err: error, event: "trpc_error", path });
 			},

@@ -9,6 +9,7 @@ import { createTestDatabase, type TestDatabase } from "../packages/db/testing";
 import { WORKER_LOCK_KEY } from "../packages/jobs/index";
 import { createLogger } from "../packages/log/index";
 import { Secret } from "../packages/log/secret";
+import { createSecrets } from "../packages/secrets/index";
 import { createUser, createUsers, resetPassword } from "../packages/users/index";
 import { createApp } from "./app";
 import { CSRF_HEADER } from "./csrf";
@@ -28,7 +29,13 @@ beforeAll(async () => {
 		secret: new Secret(randomBytes(32).toString("hex")),
 		log,
 	});
-	app = createApp({ db: database.db, users, origin: ORIGIN, log });
+	app = createApp({
+		db: database.db,
+		secrets: createSecrets([{ version: 1, key: new Secret(randomBytes(32)) }]),
+		users,
+		origin: ORIGIN,
+		log,
+	});
 	await database.db.transaction(async (tx) => {
 		await createCandidate(tx, await createUser(tx, { email: EMAIL, name: "Dana", password: PASSWORD }));
 	});
@@ -235,5 +242,35 @@ describe("system status", () => {
 		} finally {
 			await lock?.release();
 		}
+	});
+});
+
+describe("AI settings", () => {
+	it("saves keys write-only, showing only their last 4 characters, and sets the daily cap", async () => {
+		const user = client();
+		await user.signIn();
+		const key = "sk-ant-api03-thisisthewholesecretkey-k3Y9";
+
+		const refused = await user.mutation("/api/trpc/ai.saveKey", { provider: "anthropic", key: "not a key" });
+		expect(refused.status).toBe(400);
+		expect(await refused.text()).toContain("sk-ant-");
+
+		const saved = await user.mutation("/api/trpc/ai.saveKey", { provider: "anthropic", key });
+		expect(saved.status).toBe(200);
+		expect(await saved.text()).not.toContain("thisisthewholesecretkey");
+		expect((await user.mutation("/api/trpc/ai.updateSettings", { dailyCapUsd: 2.5, preset: "economy" })).status).toBe(
+			200,
+		);
+
+		const response = await user.request("/api/trpc/ai.settings");
+		const text = await response.text();
+		expect(text).not.toContain("thisisthewholesecretkey");
+		const settings = (JSON.parse(text) as { result: { data: Record<string, unknown> } }).result.data;
+		expect(settings).toMatchObject({
+			keys: [{ provider: "anthropic", last4: "k3Y9" }],
+			preset: "economy",
+			dailyCapUsd: 2.5,
+			spentTodayUsd: 0,
+		});
 	});
 });

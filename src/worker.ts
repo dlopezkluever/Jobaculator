@@ -1,11 +1,13 @@
+import { purgeExpiredPayloads } from "./packages/ai/index";
 import { loadConfig } from "./packages/config/index";
-import { trySessionLock } from "./packages/db/index";
+import { createDatabase, trySessionLock } from "./packages/db/index";
 import { createJobs, WORKER_LOCK_KEY } from "./packages/jobs/index";
 import { createLogger } from "./packages/log/index";
 
 // The `worker` process: hosts every pg-boss consumer and schedule (§3).
 // Exactly one runs at a time, enforced by a Postgres advisory lock (§17).
 const SHUTDOWN_GRACE_MS = 60_000;
+const PAYLOAD_PURGE_MS = 60 * 60 * 1000;
 
 const config = loadConfig("worker");
 const log = createLogger({ level: config.logLevel });
@@ -26,6 +28,19 @@ const jobs = createJobs({
 });
 await jobs.start();
 // Consumers are registered here as later tickets add queues.
+
+// AI prompts and outputs are kept 14 days (§12); the ledger rows stay.
+const database = createDatabase(config.databaseUrl, { max: 2 });
+async function purgePayloads() {
+	try {
+		const removed = await purgeExpiredPayloads(database.db);
+		if (removed > 0) log.info({ event: "ai_payloads_purged", removed });
+	} catch (error) {
+		log.error({ err: error, event: "ai_payload_purge_failed" });
+	}
+}
+void purgePayloads();
+const purgeTimer = setInterval(() => void purgePayloads(), PAYLOAD_PURGE_MS);
 log.info({ event: "worker_started" });
 
 let stopping = false;
@@ -33,7 +48,9 @@ async function shutdown(signal: string) {
 	if (stopping) return;
 	stopping = true;
 	log.info({ event: "worker_stopping", signal });
+	clearInterval(purgeTimer);
 	await jobs.stop({ timeoutMs: SHUTDOWN_GRACE_MS });
+	await database.close();
 	await lock?.release();
 	log.info({ event: "worker_stopped" });
 	process.exit(0);

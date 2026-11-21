@@ -1,0 +1,53 @@
+{
+	"note": "Hand-authored in the Responses API's documented shape. Re-record with `pnpm test:record-llm`.",
+	"interactions": [
+		{
+			"request": {
+				"method": "POST",
+				"url": "https://api.openai.com/v1/responses"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"content-type": "application/json",
+					"x-request-id": "req_openai01"
+				},
+				"body": {
+					"id": "resp_01Structured",
+					"object": "response",
+					"created_at": 1795000000,
+					"status": "completed",
+					"model": "gpt-6.1-sol",
+					"incomplete_details": null,
+					"output": [
+						{
+							"type": "message",
+							"id": "msg_01",
+							"status": "completed",
+							"role": "assistant",
+							"content": [
+								{
+									"type": "output_text",
+									"text": "{\"title\":\"Staff Engineer\",\"years\":7,\"skills\":[\"TypeScript\",\"Postgres\"]}",
+									"annotations": []
+								}
+							]
+						}
+					],
+					"usage": {
+						"input_tokens": 2000,
+						"input_tokens_details": {
+							"cached_tokens": 500,
+							"cache_write_tokens": 0
+						},
+						"output_tokens": 100,
+						"output_tokens_details": {
+							"reasoning_tokens": 0
+						},
+						"total_tokens": 2100
+					}
+				}
+			}
+		}
+	]
+}

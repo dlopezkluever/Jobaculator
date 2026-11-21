@@ -1,0 +1,107 @@
+{
+	"note": "Hand-authored computer_toolset_20260801 turns in the documented shape. Re-record with `pnpm test:record-llm`.",
+	"interactions": [
+		{
+			"request": {
+				"method": "POST",
+				"url": "https://api.anthropic.com/v1/messages"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"content-type": "application/json",
+					"request-id": "req_011CXcomputer01"
+				},
+				"body": {
+					"id": "msg_01Turn1",
+					"type": "message",
+					"role": "assistant",
+					"model": "claude-sonnet-5-5",
+					"content": [
+						{
+							"type": "text",
+							"text": "I'll open the form and fill in the name."
+						},
+						{
+							"type": "tool_use",
+							"id": "toolu_01Click",
+							"name": "left_click",
+							"input": {
+								"coordinate": [640, 410]
+							},
+							"toolset_name": "computer",
+							"caller": {
+								"type": "direct"
+							}
+						},
+						{
+							"type": "tool_use",
+							"id": "toolu_02Type",
+							"name": "type",
+							"input": {
+								"text": "Dana"
+							},
+							"toolset_name": "computer",
+							"caller": {
+								"type": "direct"
+							}
+						},
+						{
+							"type": "tool_use",
+							"id": "toolu_03Zoom",
+							"name": "zoom",
+							"input": {
+								"region": [0, 0, 10, 10]
+							},
+							"toolset_name": "computer",
+							"caller": {
+								"type": "direct"
+							}
+						}
+					],
+					"stop_reason": "tool_use",
+					"stop_sequence": null,
+					"usage": {
+						"input_tokens": 2500,
+						"output_tokens": 90,
+						"cache_creation_input_tokens": 0,
+						"cache_read_input_tokens": 0
+					}
+				}
+			}
+		},
+		{
+			"request": {
+				"method": "POST",
+				"url": "https://api.anthropic.com/v1/messages"
+			},
+			"response": {
+				"status": 200,
+				"headers": {
+					"content-type": "application/json",
+					"request-id": "req_011CXcomputer02"
+				},
+				"body": {
+					"id": "msg_01Turn2",
+					"type": "message",
+					"role": "assistant",
+					"model": "claude-sonnet-5-5",
+					"content": [
+						{
+							"type": "text",
+							"text": "The name field is filled."
+						}
+					],
+					"stop_reason": "end_turn",
+					"stop_sequence": null,
+					"usage": {
+						"input_tokens": 4200,
+						"output_tokens": 15,
+						"cache_creation_input_tokens": 0,
+						"cache_read_input_tokens": 0
+					}
+				}
+			}
+		}
+	]
+}
