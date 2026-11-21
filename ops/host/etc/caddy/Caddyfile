@@ -1,0 +1,11 @@
+# Installed by ops/provision (§17). No-hostname mode: plain HTTP on 127.0.0.1 only, reached
+# through an SSH tunnel (`ssh -N -L 8080:127.0.0.1:80 <host>`, then http://localhost:8080).
+# Leaving it (domain, Let's Encrypt, HSTS, forward_auth for /takeover/*) is on the launch checklist.
+{
+	auto_https off
+}
+
+http://:80 {
+	bind 127.0.0.1
+	reverse_proxy 127.0.0.1:3000
+}

@@ -1,0 +1,4 @@
+# Installed by ops/provision (§17), with ADMIN_USER replaced by the admin who ran it (daniel).
+# The admin's only passwordless sudo: the two root-owned, argument-validating scripts that
+# ops/deploy and ops/run call. No wildcards.
+ADMIN_USER ALL=(root) NOPASSWD: /opt/jobaculator/bin/release, /opt/jobaculator/bin/run

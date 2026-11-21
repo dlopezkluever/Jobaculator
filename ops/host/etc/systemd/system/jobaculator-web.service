@@ -1,0 +1,36 @@
+# Installed by ops/provision (§17). The `web` role: Hono host for auth, the tRPC API and the SPA.
+[Unit]
+Description=Jobaculator web
+Requires=postgresql@18-main.service
+After=network-online.target postgresql@18-main.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jobaculator-web
+Group=jobaculator-web
+SupplementaryGroups=jobaculator
+WorkingDirectory=/opt/jobaculator/current
+ExecStart=/opt/jobaculator/current/bin/node dist/server.js
+# Non-secret config. Postgres over its unix socket with peer auth (no password).
+Environment=NODE_ENV=production
+Environment="DATABASE_URL=postgresql://web@/jobaculator?host=/run/postgresql"
+Environment=DATA_DIR=/var/lib/jobaculator/data
+Environment=WEB_HOST=127.0.0.1 WEB_PORT=3000
+# No-hostname mode: the browser reaches Caddy through `ssh -L 8080:127.0.0.1:80`.
+Environment=WEB_ORIGIN=http://localhost:8080
+# Secrets as root-only files, read from $CREDENTIALS_DIRECTORY, never env vars.
+LoadCredential=master-key:/etc/jobaculator/credentials/web/master-key
+LoadCredential=auth-secret:/etc/jobaculator/credentials/web/auth-secret
+MemoryMax=512M
+Restart=always
+RestartSec=2
+UMask=0007
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/jobaculator/data
+
+[Install]
+WantedBy=multi-user.target

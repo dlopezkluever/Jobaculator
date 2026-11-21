@@ -1,0 +1,7 @@
+// Installed by ops/provision (§17). Security updates install unattended; kernel and libc
+// updates reboot at 10:00 UTC (about 04:00-05:00 America/Chicago). The worker stops gracefully.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "10:00";

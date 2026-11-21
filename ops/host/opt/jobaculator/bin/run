@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Root-owned, installed by ops/provision (§17); the admin runs it through passwordless sudo
+# from `pnpm ops:run`. Runs one whitelisted command of the current release's ops CLI
+# (dist/cli.js) as an unprivileged user with that role's database access, never as root.
+#
+#   run user:create --email <email> --name <name>     password from stdin or a prompt
+#   run user:reset-password --email <email>
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+die() { echo "run: $*" >&2; exit 1; }
+[[ $(id -u) == 0 ]] || die "run as root (sudo)"
+release=/opt/jobaculator/current
+[[ -x $release/bin/node ]] || die "no current release; deploy one first"
+
+command="${1:-}"
+case "$command" in
+# User administration writes the users and candidate tables, as web does.
+user:create | user:reset-password) user=jobaculator-web role=web ;;
+*) die "unknown command '${command}'; allowed: user:create, user:reset-password" ;;
+esac
+shift
+# The CLI parses its own options strictly; these only keep option-like junk away from it.
+for arg in "$@"; do [[ $arg != *$'\n'* ]] || die "arguments may not contain newlines"; done
+
+io=--pipe
+[[ -t 0 && -t 1 ]] && io=--pty
+exec systemd-run --quiet --wait --collect "$io" -p "User=$user" -p NoNewPrivileges=yes -p PrivateTmp=yes \
+	-p "WorkingDirectory=$release" -E NODE_ENV=production \
+	-E "DATABASE_URL=postgresql://$role@/jobaculator?host=/run/postgresql" \
+	-- "$release/bin/node" dist/cli.js "$command" "$@"

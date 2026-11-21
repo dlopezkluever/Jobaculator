@@ -1,0 +1,48 @@
+# Installed by ops/provision (§17). The `worker` role: every pg-boss consumer and schedule,
+# Chromium as child processes. Exactly one runs (advisory lock); deploys stop it, then start the new one.
+[Unit]
+Description=Jobaculator worker
+Requires=postgresql@18-main.service
+After=network-online.target postgresql@18-main.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jobaculator-worker
+Group=jobaculator-worker
+SupplementaryGroups=jobaculator
+WorkingDirectory=/opt/jobaculator/current
+ExecStart=/opt/jobaculator/current/bin/node dist/worker.js
+Environment=NODE_ENV=production
+Environment="DATABASE_URL=postgresql://worker@/jobaculator?host=/run/postgresql"
+Environment=DATA_DIR=/var/lib/jobaculator/data
+# Chromium installed by ops/provision (read-only here).
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/jobaculator/ms-playwright
+LoadCredential=master-key:/etc/jobaculator/credentials/worker/master-key
+# SIGTERM to the main process starts the graceful stop (60 s grace in worker.ts); then the
+# remaining children (Chromium) are killed. An OOM kill restarts it and counts as a crash.
+KillMode=mixed
+TimeoutStopSec=90
+MemoryHigh=1600M
+MemoryMax=2G
+Restart=always
+RestartSec=2
+UMask=0007
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/jobaculator/data
+
+# Egress block (§14, §17): cgroup-BPF at connect time, so it covers Node and every Chromium
+# child, redirects, WebSockets and UDP, and DNS rebinding cannot get around it. Only the
+# systemd-resolved stub is allowed; Postgres is reached over its unix socket.
+# `bin/release egress-check` proves the block on the host after every activation.
+IPAddressAllow=127.0.0.53
+# "This host" (0.0.0.0 connects to loopback), loopback, RFC1918, CGNAT, link-local (metadata), multicast.
+IPAddressDeny=0.0.0.0/8 127.0.0.0/8 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 169.254.0.0/16 224.0.0.0/4
+# Unspecified, loopback, unique local, link-local, multicast.
+IPAddressDeny=::/128 ::1/128 fc00::/7 fe80::/10 ff00::/8
+
+[Install]
+WantedBy=multi-user.target
