@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect } from "@tanstack/react-router";
 import { sessionQuery } from "./lib/session";
+import { CandidateScreen } from "./screens/candidate";
 import { DashboardScreen } from "./screens/dashboard";
 import { HuntScreen, HuntsScreen } from "./screens/hunt";
 import { EditHuntScreen, NewHuntScreen } from "./screens/hunt-form";
@@ -51,7 +52,7 @@ const routeTree = rootRoute.addChildren([
 		createRoute({ getParentRoute: () => appRoute, path: "/hunts/$huntId", component: HuntScreen }),
 		createRoute({ getParentRoute: () => appRoute, path: "/hunts/$huntId/edit", component: EditHuntScreen }),
 		placeholder("/applications", "Applications", "No Applications yet."),
-		placeholder("/candidate", "Candidate", "Your documents, facts and standing answers will live here."),
+		createRoute({ getParentRoute: () => appRoute, path: "/candidate", component: CandidateScreen }),
 		placeholder("/settings", "Settings", "Submission mode, AI keys and spend, and alerts will live here."),
 	]),
 ]);
