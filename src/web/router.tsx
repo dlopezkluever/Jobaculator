@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect } from "@tanstack/react-router";
 import { sessionQuery } from "./lib/session";
+import { ApplicationScreen } from "./screens/application";
 import { ApplicationsScreen } from "./screens/applications";
 import { CandidateScreen } from "./screens/candidate";
 import { DashboardScreen } from "./screens/dashboard";
@@ -56,6 +57,11 @@ const routeTree = rootRoute.addChildren([
 		createRoute({ getParentRoute: () => appRoute, path: "/hunts/$huntId/edit", component: EditHuntScreen }),
 		createRoute({ getParentRoute: () => appRoute, path: "/opportunities", component: OpportunitiesScreen }),
 		createRoute({ getParentRoute: () => appRoute, path: "/applications", component: ApplicationsScreen }),
+		createRoute({
+			getParentRoute: () => appRoute,
+			path: "/applications/$applicationId",
+			component: ApplicationScreen,
+		}),
 		createRoute({ getParentRoute: () => appRoute, path: "/candidate", component: CandidateScreen }),
 		createRoute({ getParentRoute: () => appRoute, path: "/settings", component: SettingsScreen }),
 	]),

@@ -24,6 +24,9 @@ await build({
 	logLevel: "warning",
 });
 
+// Resume templates and their vendored fonts, read beside the bundled worker (generation/lib/render.ts).
+cpSync("src/packages/generation/lib/assets", join(stage, "dist", "generation-assets"), { recursive: true });
+
 // `web` serves dist/web beside dist/server.js.
 await buildWeb({ configFile: "vite.config.ts", logLevel: "warn", build: { outDir: resolve(stage, "dist", "web") } });
 

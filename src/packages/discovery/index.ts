@@ -35,6 +35,7 @@ export {
 	type OpportunityContent,
 	type OpportunitySummary,
 } from "./lib/read";
+export { type PostingSnapshot, PostingUnavailable, readPostingSnapshot } from "./lib/snapshot";
 export {
 	type BoardListing,
 	type BoardRef,

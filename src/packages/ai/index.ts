@@ -1,6 +1,8 @@
+import { eq, max } from "drizzle-orm";
 import type { Executor } from "../db/index";
 import type { UserId } from "../db/ownership";
 import { readSettings, type Settings, spentTodayMicroUsd, writeSettings } from "./lib/ledger";
+import { aiSettings, providerKey } from "./lib/schema";
 import type { Preset, Task } from "./lib/types";
 
 // The AI gateway (§12, #15). Every LLM call in `web` and `worker` goes through `LlmClient`;
@@ -86,4 +88,20 @@ export async function updateAiSettings(
 					: Math.round(change.dailyCapUsd * 1e6),
 		timeZone: change.timeZone ?? current.timeZone,
 	});
+}
+
+/**
+ * When the User last saved an AI key or changed their AI settings, or null if never. Work
+ * suspended after repeated identical AI failures resumes once this is later than the suspension.
+ */
+export async function aiSetupChangedAt(exec: Executor, owner: UserId): Promise<Date | null> {
+	const [[key], [settings]] = await Promise.all([
+		exec
+			.select({ at: max(providerKey.updatedAt) })
+			.from(providerKey)
+			.where(eq(providerKey.userId, owner)),
+		exec.select({ at: aiSettings.updatedAt }).from(aiSettings).where(eq(aiSettings.userId, owner)),
+	]);
+	const times = [key?.at, settings?.at].flatMap((at) => (at ? [new Date(at).getTime()] : []));
+	return times.length > 0 ? new Date(Math.max(...times)) : null;
 }

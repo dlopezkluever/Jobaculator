@@ -9,6 +9,7 @@ import {
 	createApplicationPipeline,
 	createDiscoveryPipeline,
 	createMatchingPipeline,
+	createPreparationPipeline,
 	PIPELINE_QUEUES,
 } from "./packages/pipeline/index";
 import { createSecrets } from "./packages/secrets/index";
@@ -37,8 +38,8 @@ if (!lock) {
 	process.exit(1);
 }
 
-// Extraction (2), discover (2), ingest (4), evaluate (4) and decide (2) consumers share this pool with the ticks.
-const database = createDatabase(config.databaseUrl, { max: 17 });
+// Extraction (2), discover (2), ingest (4), evaluate (4), decide (2) and prepare (2) consumers share this pool with the ticks.
+const database = createDatabase(config.databaseUrl, { max: 19 });
 const secrets = createSecrets([{ version: 1, key: config.masterKey }]);
 const storage = createStorage(config.dataDir);
 const llm = createLlmClient({ db: database.db, secrets, log });
@@ -57,18 +58,13 @@ await jobs.work(
 
 // One limiter shared by every User's polls, so each ATS host sees ~1 request/s (§6).
 const sourceHttp = createSourceHttp();
-const discovery = createDiscoveryPipeline({
-	db: database.db,
-	jobs,
-	storage,
-	adapters: { greenhouse: createGreenhouseAdapter(sourceHttp) },
-	log,
-});
+const adapters = { greenhouse: createGreenhouseAdapter(sourceHttp) };
+const discovery = createDiscoveryPipeline({ db: database.db, jobs, storage, adapters, log });
 await discovery.work();
 await createMatchingPipeline({ db: database.db, jobs, llm, log }).work();
-// `prepare` has no consumer until generation (#42): dispatched jobs wait, queued, in priority order.
 const applications = createApplicationPipeline({ db: database.db, jobs, log });
 await applications.work();
+await createPreparationPipeline({ db: database.db, jobs, llm, storage, adapters, log }).work();
 async function discoveryTick() {
 	try {
 		const sent = await discovery.tick();

@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
+import { getPackage } from "../packages/applications/index";
 import { addDocument, DOCUMENT_LIMITS, DocumentError } from "../packages/candidate/index";
 import type { Logger } from "../packages/log/index";
 import { AUTH_BASE_PATH, type Users } from "../packages/users/index";
@@ -12,6 +13,7 @@ import { appRouter } from "./router";
 import type { Services } from "./trpc";
 
 const TRPC_ENDPOINT = "/api/trpc";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The `web` HTTP surface: health, auth routes, the tRPC API and the built SPA, behind
@@ -100,6 +102,22 @@ export function createApp(
 			}
 		},
 	);
+	// Downloads resolve an owner-scoped domain reference, never a raw blob hash (§13).
+	app.get("/api/applications/:id/resume.pdf", async (c) => {
+		const session = await users.getSession(c.req.raw);
+		if (!session) return c.json({ error: "unauthorized" }, 401);
+		const id = c.req.param("id");
+		const pkg = UUID.test(id) ? await getPackage(db, session.userId, id) : null;
+		if (!pkg?.resumePdf) return c.json({ error: "not found" }, 404);
+		const bytes = await storage.get(pkg.resumePdf);
+		const name = pkg.resume?.identity.name.replace(/[^\p{L}\p{N} .-]+/gu, "").trim() || "Resume";
+		return c.body(new Uint8Array(bytes), 200, {
+			"Content-Type": "application/pdf",
+			"Content-Disposition": `attachment; filename="resume.pdf"; filename*=UTF-8''${encodeURIComponent(`${name} Resume.pdf`)}`,
+			"X-Content-Type-Options": "nosniff",
+			"Cache-Control": "private, no-store",
+		});
+	});
 	app.all("/api/*", (c) => c.json({ error: "not found" }, 404));
 
 	if (deps.spaRoot) {
