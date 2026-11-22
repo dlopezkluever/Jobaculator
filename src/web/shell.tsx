@@ -64,6 +64,19 @@ export function AppShell() {
 						submitted.
 					</div>
 				)}
+				{status.data?.holds.map((hold) => (
+					<div
+						key={hold.scope}
+						role="status"
+						className="border-b border-warning-foreground/15 bg-warning px-8 py-2 text-sm text-warning-foreground"
+					>
+						<strong className="font-semibold">Preparation paused.</strong> Add your{" "}
+						{hold.reason.split(",").join(" and ")} so Applications can be prepared.{" "}
+						<Link to="/candidate" className="font-medium underline">
+							Go to Candidate
+						</Link>
+					</div>
+				))}
 				<main className="flex-1 px-8 py-7">
 					<Outlet />
 				</main>

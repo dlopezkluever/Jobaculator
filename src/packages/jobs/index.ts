@@ -39,8 +39,14 @@ export type Jobs = {
 	send<Q extends Queue>(
 		queue: Q,
 		payload: Payload<Q>,
-		options?: { tx?: Tx; singletonKey?: string },
+		options?: { tx?: Tx; singletonKey?: string; startAfter?: Date },
 	): Promise<string | null>;
+	/**
+	 * The payloads of the queue's live jobs: queued, retrying or running, or failed within the
+	 * last `failedWithinMs` (default an hour), so a record whose job keeps failing is nudged
+	 * again at most that often. The sweeper nudges records that have none (§5).
+	 */
+	live<Q extends Queue>(queue: Q, options?: { failedWithinMs?: number }): Promise<Payload<Q>[]>;
 	/** Consumes jobs one at a time; a payload that fails validation fails the job without calling `handler`. */
 	work<Q extends Queue>(
 		queue: Q,
@@ -54,6 +60,8 @@ export type Jobs = {
 	/** Stops fetching and waits up to `timeoutMs` for running handlers. */
 	stop(options?: { timeoutMs?: number }): Promise<void>;
 };
+
+const FAILED_STAYS_LIVE_MS = 60 * 60 * 1000;
 
 export function createJobs(options: {
 	databaseUrl: string;
@@ -97,6 +105,22 @@ export function createJobs(options: {
 			return boss.send(queue.name, data, {
 				...(sendOptions.tx ? { db: fromDrizzle(sendOptions.tx, sql) } : {}),
 				...(sendOptions.singletonKey ? { singletonKey: sendOptions.singletonKey } : {}),
+				...(sendOptions.startAfter ? { startAfter: sendOptions.startAfter } : {}),
+			});
+		},
+		async live(queue, liveOptions = {}) {
+			await ensureStarted();
+			const failedWithinSeconds = (liveOptions.failedWithinMs ?? FAILED_STAYS_LIVE_MS) / 1000;
+			const result = await boss.getDb().executeSql(
+				`select data from pgboss.job where name = $1
+					and (state in ('created', 'retry', 'active')
+						or (state = 'failed' and completed_on > now() - make_interval(secs => $2)))`,
+				[queue.name, failedWithinSeconds],
+			);
+			// A job of an older payload shape names no record this release knows how to advance.
+			return (result.rows as { data: unknown }[]).flatMap((row) => {
+				const parsed = queue.schema.safeParse(row.data);
+				return parsed.success ? [parsed.data as Payload<typeof queue>] : [];
 			});
 		},
 		async work(queue, handler, workOptions = {}) {

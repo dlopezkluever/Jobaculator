@@ -5,7 +5,12 @@ import { createDatabase, trySessionLock } from "./packages/db/index";
 import { createGreenhouseAdapter, createSourceHttp } from "./packages/discovery/index";
 import { createJobs, WORKER_LOCK_KEY } from "./packages/jobs/index";
 import { createLogger } from "./packages/log/index";
-import { createDiscoveryPipeline, createMatchingPipeline, PIPELINE_QUEUES } from "./packages/pipeline/index";
+import {
+	createApplicationPipeline,
+	createDiscoveryPipeline,
+	createMatchingPipeline,
+	PIPELINE_QUEUES,
+} from "./packages/pipeline/index";
 import { createSecrets } from "./packages/secrets/index";
 import { createStorage } from "./packages/storage/index";
 
@@ -15,6 +20,10 @@ const SHUTDOWN_GRACE_MS = 60_000;
 const PAYLOAD_PURGE_MS = 60 * 60 * 1000;
 /** How often due Boards are looked for; each Board itself is polled every ~2 h (§6). */
 const DISCOVERY_TICK_MS = 60 * 1000;
+/** The `prepare` dispatcher's tick; a new Application also nudges it at once (§5). */
+const DISPATCH_TICK_MS = 30 * 1000;
+/** The sweeper re-nudges automated states that have no live job (§5). */
+const SWEEP_MS = 5 * 60 * 1000;
 
 const config = loadConfig("worker");
 const log = createLogger({ level: config.logLevel });
@@ -28,8 +37,8 @@ if (!lock) {
 	process.exit(1);
 }
 
-// Extraction (2), discover (2), ingest (4) and evaluate (4) consumers share this pool with the ticks.
-const database = createDatabase(config.databaseUrl, { max: 14 });
+// Extraction (2), discover (2), ingest (4), evaluate (4) and decide (2) consumers share this pool with the ticks.
+const database = createDatabase(config.databaseUrl, { max: 17 });
 const secrets = createSecrets([{ version: 1, key: config.masterKey }]);
 const storage = createStorage(config.dataDir);
 const llm = createLlmClient({ db: database.db, secrets, log });
@@ -57,6 +66,9 @@ const discovery = createDiscoveryPipeline({
 });
 await discovery.work();
 await createMatchingPipeline({ db: database.db, jobs, llm, log }).work();
+// `prepare` has no consumer until generation (#42): dispatched jobs wait, queued, in priority order.
+const applications = createApplicationPipeline({ db: database.db, jobs, log });
+await applications.work();
 async function discoveryTick() {
 	try {
 		const sent = await discovery.tick();
@@ -67,6 +79,25 @@ async function discoveryTick() {
 }
 void discoveryTick();
 const discoveryTimer = setInterval(() => void discoveryTick(), DISCOVERY_TICK_MS);
+
+async function dispatchTick() {
+	try {
+		await applications.dispatch();
+	} catch (error) {
+		log.error({ err: error, event: "dispatch_tick_failed" });
+	}
+}
+void dispatchTick();
+const dispatchTimer = setInterval(() => void dispatchTick(), DISPATCH_TICK_MS);
+async function sweep() {
+	try {
+		const swept = await applications.sweep();
+		if (Object.values(swept).some((n) => n > 0)) log.info({ event: "pipeline_swept", ...swept });
+	} catch (error) {
+		log.error({ err: error, event: "sweep_failed" });
+	}
+}
+const sweepTimer = setInterval(() => void sweep(), SWEEP_MS);
 
 // AI prompts and outputs are kept 14 days (§12); the ledger rows stay.
 async function purgePayloads() {
@@ -88,6 +119,8 @@ async function shutdown(signal: string) {
 	log.info({ event: "worker_stopping", signal });
 	clearInterval(purgeTimer);
 	clearInterval(discoveryTimer);
+	clearInterval(dispatchTimer);
+	clearInterval(sweepTimer);
 	await jobs.stop({ timeoutMs: SHUTDOWN_GRACE_MS });
 	await database.close();
 	await lock?.release();

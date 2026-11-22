@@ -1,6 +1,17 @@
 import { z } from "zod";
 import type { LlmClient } from "../ai/index";
-import { experienceYears } from "../candidate/index";
+import {
+	claimPreparations,
+	createApplication,
+	dispatchedPreparations,
+	expireClosedApplications,
+	getApplicationForOpportunity,
+	lockOpportunityDecision,
+	reviveExpired,
+	undecidedOpportunities,
+	usersAwaitingPreparation,
+} from "../applications/index";
+import { experienceYears, missingContactIdentity } from "../candidate/index";
 import { SEED_BOARDS } from "../config/index";
 import type { Db, Tx } from "../db/index";
 import type { UserId } from "../db/ownership";
@@ -14,13 +25,15 @@ import {
 	sourcePostingSchema,
 	watchBoards,
 } from "../discovery/index";
-import { getHunt, hasActiveHunt, listHunts, usersWithActiveHunts } from "../hunts/index";
+import { heldUsers, liftHold, raiseHold } from "../holds/index";
+import { getHunt, type Hunt, hasActiveHunt, listHunts, usersWithActiveHunts } from "../hunts/index";
 import { defineQueue, type Jobs } from "../jobs/index";
 import type { Logger } from "../log/index";
-import { evaluate, getMatch, requestEvaluations } from "../matching/index";
+import { evaluableMatches, evaluate, getMatch, listMatches, requestEvaluations } from "../matching/index";
 import type { Storage } from "../storage/index";
 
-// Pipeline steps 1–3 (§5): `discover(userId, board)` → `ingest(posting)` → `evaluate(match)`.
+// Pipeline steps 1–5 (§5): `discover(userId, board)` → `ingest(posting)` → `evaluate(match)` →
+// `decide(opportunity)` → `prepare(application)`. State rows are the truth; jobs are nudges.
 
 /** At most one poll per (User, Board) is queued or running; a poll due meanwhile is skipped, not queued (§6). */
 export const discoverQueue = defineQueue("discover", { boardId: z.uuid() }, { policy: "exclusive" });
@@ -31,7 +44,19 @@ export const ingestQueue = defineQueue("ingest", {
 });
 /** One Match to evaluate; a nudge for a Match that moved on does nothing. */
 export const evaluateQueue = defineQueue("evaluate", { matchId: z.uuid() });
-export const PIPELINE_QUEUES = [discoverQueue, ingestQueue, evaluateQueue];
+/**
+ * Decide one Opportunity. Sent when its Matches settle, and as a `fallback` a while after they
+ * were asked to evaluate, which decides on the Matches settled by then.
+ */
+export const decideQueue = defineQueue("decide", { opportunityId: z.uuid(), fallback: z.boolean() });
+/** Prepare one Application's Package; sent only by the dispatcher. Its consumer arrives with generation (#42). */
+export const prepareQueue = defineQueue("prepare", { applicationId: z.uuid() });
+export const PIPELINE_QUEUES = [discoverQueue, ingestQueue, evaluateQueue, decideQueue, prepareQueue];
+
+/** How long `decide` waits for stalled evaluations before deciding on the Matches settled so far. */
+export const DECIDE_FALLBACK_MS = 15 * 60 * 1000;
+/** Prepared or preparing Applications kept ahead of the one browser (§5). */
+export const DEFAULT_READY_BACKLOG = 8;
 
 /**
  * Ingest's next step, in its transaction (§5): every ACTIVE Hunt evaluates a new, changed or
@@ -39,15 +64,29 @@ export const PIPELINE_QUEUES = [discoverQueue, ingestQueue, evaluateQueue];
  */
 async function requestHuntEvaluations(jobs: Jobs, tx: Tx, owner: UserId, ingested: Ingested) {
 	if (ingested.outcome === "SIGHTED" || ingested.outcome === "UNCHANGED") return;
+	const { opportunityId } = ingested;
+	// A reopened posting reconsiders its Expired Application, the same one (§4).
+	if (ingested.outcome === "REOPENED") await reviveExpired(tx, owner, opportunityId);
 	const active = (await listHunts(tx, owner)).filter((hunt) => hunt.status === "ACTIVE");
 	const ids = await requestEvaluations(
 		tx,
 		owner,
-		ingested.opportunityId,
+		opportunityId,
 		active.map((hunt) => hunt.id),
 	);
 	for (const matchId of ids) await jobs.send(evaluateQueue, { userId: owner, matchId }, { tx });
+	// A changed posting re-evaluates for future decisions only: an existing Application stays as it is.
+	if (ids.length > 0 && !(await getApplicationForOpportunity(tx, owner, opportunityId))) {
+		await jobs.send(
+			decideQueue,
+			{ userId: owner, opportunityId, fallback: true },
+			{ tx, startAfter: new Date(Date.now() + DECIDE_FALLBACK_MS) },
+		);
+	}
 }
+
+const activeHunts = async (exec: Tx | Db, owner: UserId) =>
+	new Map((await listHunts(exec, owner)).filter((h) => h.status === "ACTIVE").map((h): [string, Hunt] => [h.id, h]));
 
 export type DiscoveryPipeline = {
 	/** Enqueues a poll of every due Board of every User with an ACTIVE Hunt, watching the seed Boards first. */
@@ -142,11 +181,23 @@ export function createMatchingPipeline(deps: { db: Db; jobs: Jobs; llm: LlmClien
 		if (hunt?.status !== "ACTIVE") return;
 		const opportunity = await getOpportunity(db, userId, pending.opportunityId);
 		if (opportunity?.status !== "OPEN") return;
-		const evaluated = await evaluate({ db, llm }, userId, pending, {
-			criteria: hunt.criteria,
-			opportunity,
-			experienceYears: await experienceYears(db, userId),
-		});
+		const evaluated = await evaluate(
+			{ db, llm },
+			userId,
+			pending,
+			{ criteria: hunt.criteria, opportunity, experienceYears: await experienceYears(db, userId) },
+			{
+				// `decide` fires as soon as every ACTIVE Hunt's Match of the Opportunity has settled (§5).
+				onEvaluated: async (tx, done) => {
+					await lockOpportunityDecision(tx, userId, done.opportunityId);
+					if (await getApplicationForOpportunity(tx, userId, done.opportunityId)) return;
+					const hunts = await activeHunts(tx, userId);
+					const matches = (await listMatches(tx, userId, [done.opportunityId])).filter((m) => hunts.has(m.huntId));
+					if (matches.some((m) => m.status === "PENDING")) return;
+					await jobs.send(decideQueue, { userId, opportunityId: done.opportunityId, fallback: false }, { tx });
+				},
+			},
+		);
 		if (evaluated) {
 			log.info({
 				event: "match_evaluated",
@@ -167,6 +218,131 @@ export function createMatchingPipeline(deps: { db: Db; jobs: Jobs; llm: LlmClien
 				localConcurrency: 4,
 				burst: true,
 			});
+		},
+	};
+}
+
+export type ApplicationPipeline = {
+	/**
+	 * `decide(opportunity)` (§5 step 4): once its ACTIVE Hunts' Matches have settled, or on the
+	 * fallback with whatever has settled, creates its one Application. Safe to repeat.
+	 */
+	runDecide(userId: UserId, opportunityId: string, fallback: boolean): Promise<string | null>;
+	/**
+	 * One dispatcher tick for `prepare` (§5): refreshes each waiting Candidate's contact-identity
+	 * Hold, then claims free capacity in Opportunity Value order and enqueues `prepare` with it.
+	 */
+	dispatch(): Promise<number>;
+	/** Re-nudges records in an automated state with no live job, and expires Applications of closed postings. */
+	sweep(): Promise<{ evaluate: number; decide: number; prepare: number; expired: number }>;
+	/** Registers the `decide` consumer. */
+	work(): Promise<void>;
+};
+
+export function createApplicationPipeline(deps: {
+	db: Db;
+	jobs: Jobs;
+	log: Logger;
+	readyBacklog?: number;
+}): ApplicationPipeline {
+	const { db, jobs, log } = deps;
+	const backlog = deps.readyBacklog ?? DEFAULT_READY_BACKLOG;
+
+	async function runDecide(userId: UserId, opportunityId: string, fallback: boolean) {
+		const created = await db.transaction(async (tx) => {
+			await lockOpportunityDecision(tx, userId, opportunityId);
+			if (await getApplicationForOpportunity(tx, userId, opportunityId)) return null;
+			if ((await getOpportunity(tx, userId, opportunityId))?.status !== "OPEN") return null;
+			// A paused Hunt's Match neither creates an Application nor holds the decision back.
+			const hunts = await activeHunts(tx, userId);
+			const matches = (await listMatches(tx, userId, [opportunityId])).filter((m) => hunts.has(m.huntId));
+			if (!fallback && matches.some((m) => m.status === "PENDING")) return null;
+			return createApplication(
+				tx,
+				userId,
+				opportunityId,
+				matches.map((m) => ({ match: m, submissionPolicy: hunts.get(m.huntId)?.submissionPolicy ?? "AUTO" })),
+			);
+		});
+		if (!created) return null;
+		log.info({ event: "application_created", userId, applicationId: created.id, fit: created.fit });
+		// A new Application nudges the dispatcher rather than waiting for its next tick.
+		await dispatch();
+		return created.id;
+	}
+
+	async function refreshContactHolds() {
+		const owners = new Set([...(await usersAwaitingPreparation(db)), ...(await heldUsers(db, "contact_identity"))]);
+		for (const owner of owners) {
+			const missing = await missingContactIdentity(db, owner);
+			const changed = await db.transaction((tx) =>
+				missing.length > 0
+					? raiseHold(tx, owner, "contact_identity", missing.join(","))
+					: liftHold(tx, owner, "contact_identity"),
+			);
+			if (changed)
+				log.info({
+					event: missing.length > 0 ? "hold_raised" : "hold_lifted",
+					userId: owner,
+					scope: "contact_identity",
+				});
+		}
+	}
+
+	async function dispatch() {
+		await refreshContactHolds();
+		const held = await heldUsers(db, "contact_identity");
+		const claimed = await db.transaction(async (tx) => {
+			const picked = await claimPreparations(tx, { backlog, excludeUsers: held });
+			for (const { userId, applicationId } of picked) {
+				await jobs.send(prepareQueue, { userId, applicationId }, { tx });
+			}
+			return picked.length;
+		});
+		if (claimed > 0) log.info({ event: "preparations_dispatched", claimed });
+		return claimed;
+	}
+
+	return {
+		runDecide,
+		dispatch,
+		async sweep() {
+			const [evaluating, deciding, preparing] = await Promise.all([
+				jobs.live(evaluateQueue),
+				jobs.live(decideQueue),
+				jobs.live(prepareQueue),
+			]);
+			const counts = { evaluate: 0, decide: 0, prepare: 0, expired: 0 };
+			const pendingMatches = new Set(evaluating.map((job) => job.matchId));
+			for (const { userId, matchId } of await evaluableMatches(db)) {
+				if (pendingMatches.has(matchId)) continue;
+				await jobs.send(evaluateQueue, { userId, matchId });
+				counts.evaluate++;
+			}
+			// Their own fallback is still waiting, or was lost: decide on what has settled.
+			const pendingDecisions = new Set(deciding.map((job) => job.opportunityId));
+			for (const { userId, opportunityId } of await undecidedOpportunities(db)) {
+				if (pendingDecisions.has(opportunityId)) continue;
+				await jobs.send(decideQueue, { userId, opportunityId, fallback: true });
+				counts.decide++;
+			}
+			const pendingPreparations = new Set(preparing.map((job) => job.applicationId));
+			for (const { userId, applicationId } of await dispatchedPreparations(db)) {
+				if (pendingPreparations.has(applicationId)) continue;
+				await jobs.send(prepareQueue, { userId, applicationId });
+				counts.prepare++;
+			}
+			counts.expired = await expireClosedApplications(db);
+			return counts;
+		},
+		async work() {
+			await jobs.work(
+				decideQueue,
+				async ({ userId, opportunityId, fallback }) => {
+					await runDecide(userId, opportunityId, fallback);
+				},
+				{ localConcurrency: 2 },
+			);
 		},
 	};
 }

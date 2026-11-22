@@ -3,6 +3,7 @@ import type { Executor } from "../db/index";
 import type { UserId } from "../db/ownership";
 import { candidate } from "./lib/schema";
 
+export { CONTACT_IDENTITY, type ContactIdentityKind, missingContactIdentity } from "./lib/contact";
 export {
 	addDocument,
 	DOCUMENT_LIMITS,
