@@ -28,6 +28,7 @@ export {
 	removeFact,
 } from "./lib/propose";
 export {
+	type AnswerPolicy,
 	buildCandidateContext,
 	type CandidateContext,
 	type ContextFact,
@@ -36,6 +37,8 @@ export {
 	type Fact,
 	getKnowledgeBase,
 	type KnowledgeBase,
+	POLICY_TOPICS,
+	type PolicyTopic,
 } from "./lib/read";
 export type { DocumentFormat, DocumentStatus, StoredSource } from "./lib/schema";
 

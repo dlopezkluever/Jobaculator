@@ -12,9 +12,11 @@ import {
 	lockOpportunityDecision,
 	recordPreparationFailure,
 	reviveExpired,
+	saveAnswers,
 	saveResume,
 	saveStrategy,
 	startPackage,
+	transition,
 	undecidedOpportunities,
 	usersAwaitingPreparation,
 } from "../applications/index";
@@ -30,11 +32,12 @@ import {
 	type Ingested,
 	ingest,
 	PostingUnavailable,
+	readApplicationQuestions,
 	readPostingSnapshot,
 	sourcePostingSchema,
 	watchBoards,
 } from "../discovery/index";
-import { DEFAULT_TEMPLATE, planStrategy, renderResume, writeResume } from "../generation/index";
+import { answerQuestions, DEFAULT_TEMPLATE, planStrategy, renderResume, writeResume } from "../generation/index";
 import { heldUsers, liftHold, raiseHold } from "../holds/index";
 import { getHunt, type Hunt, hasActiveHunt, listHunts, usersWithActiveHunts } from "../hunts/index";
 import { defineQueue, type Jobs } from "../jobs/index";
@@ -367,8 +370,10 @@ const PREPARE_DEFER_MS = 30 * 60 * 1000;
 export type PreparationPipeline = {
 	/**
 	 * `prepare(application)` (§5 step 5, §9): captures the Job Snapshot, then the Strategy, then
-	 * the tailored resume, each checkpointed so a repeated job skips what exists. An AI failure
-	 * keeps what is done and tries again later; never an Intervention. Safe to repeat.
+	 * the tailored resume and the answers to the posting's questions side by side, each
+	 * checkpointed so a repeated job skips what exists. With all of them stored the Application
+	 * is READY, or NEEDS_YOU when a required question needs the Candidate. An AI failure keeps
+	 * what is done and tries again later; never an Intervention. Safe to repeat.
 	 */
 	runPrepare(userId: UserId, applicationId: string): Promise<void>;
 	/** Registers the `prepare` consumer. */
@@ -425,7 +430,9 @@ export function createPreparationPipeline(deps: {
 				await db.transaction((tx) => saveStrategy(tx, userId, applicationId, planned));
 				strategy = planned.strategy;
 			}
-			if (!pkg.resume) {
+			const started = pkg;
+			const writeResumeStep = async () => {
+				if (started.resume) return;
 				const written = await writeResume(llm, { ...input, strategy });
 				// Template choice per Candidate arrives with Classic; Modern is the default (#30).
 				const templateId = DEFAULT_TEMPLATE;
@@ -454,8 +461,44 @@ export function createPreparationPipeline(deps: {
 					droppedClaims: written.droppedClaims,
 					trimmedBullets: rendered.trimmedBullets,
 				});
-			}
-			await db.transaction((tx) => clearPreparationFailure(tx, userId, applicationId));
+			};
+			const answerStep = async () => {
+				if (started.answers) return true;
+				const questions = await readApplicationQuestions(adapters, started.jobSnapshot);
+				// Gone: the sweeper expires the Application once discovery sees the posting close.
+				if (!questions) return false;
+				const answered = await answerQuestions(llm, {
+					...input,
+					strategy,
+					hunt: { id: hunt.id, locations: hunt.criteria.locations, payFloor: hunt.criteria.payFloor },
+					questions,
+				});
+				await db.transaction((tx) => saveAnswers(tx, userId, applicationId, answered));
+				log.info({
+					event: "answers_written",
+					userId,
+					applicationId,
+					questions: answered.answers.length,
+					droppedAnswers: answered.droppedAnswers,
+					escalations: answered.answers.filter((a) => a.escalation).length,
+				});
+				return true;
+			};
+			// The resume and the answers both follow the Strategy and not each other (#16).
+			const [resumed, answered] = await Promise.allSettled([writeResumeStep(), answerStep()]);
+			if (resumed.status === "rejected") throw resumed.reason;
+			if (answered.status === "rejected") throw answered.reason;
+			if (!answered.value) return;
+			await db.transaction(async (tx) => {
+				await clearPreparationFailure(tx, userId, applicationId);
+				const prepared = await getPackage(tx, userId, applicationId);
+				if (!prepared?.resume || !prepared.answers) throw new Error("the Package is incomplete");
+				// Narrow escalation (#16): only a required question the Candidate must answer pauses it.
+				const to = prepared.answers.some((a) => a.escalation) ? "NEEDS_YOU" : "READY";
+				if (await transition(tx, userId, applicationId, "PREPARING", to)) {
+					log.info({ event: "application_prepared", userId, applicationId, status: to });
+				}
+			});
 		} catch (error) {
 			if (error instanceof PostingUnavailable || error instanceof BudgetExceeded) {
 				log.warn({ event: "preparation_deferred", userId, applicationId, reason: error.name });

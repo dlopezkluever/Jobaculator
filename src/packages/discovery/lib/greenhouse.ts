@@ -1,7 +1,15 @@
 import { decodeHTML } from "entities";
 import { z } from "zod";
 import type { SourceHttp } from "./http";
-import type { BoardRef, ListingFailure, SourceAdapter, SourcePosting } from "./types";
+import { sanitizedMarkdown } from "./normalize";
+import type {
+	ApplicationQuestion,
+	BoardRef,
+	ListingFailure,
+	QuestionType,
+	SourceAdapter,
+	SourcePosting,
+} from "./types";
 
 const API = "https://boards-api.greenhouse.io/v1/boards";
 const TOKEN = /^[a-z0-9][a-z0-9_-]{0,99}$/i;
@@ -22,6 +30,98 @@ const jobSchema = z.looseObject({
 		.nullish(),
 });
 const listingSchema = z.object({ jobs: z.array(z.unknown()), meta: z.object({ total: z.number().int() }) });
+
+const questionSchema = z.object({
+	label: z.string(),
+	description: z.string().nullish(),
+	required: z.boolean().nullish(),
+	fields: z.array(
+		z.object({
+			name: z.string(),
+			type: z.string(),
+			values: z.array(z.object({ label: z.string(), value: z.union([z.string(), z.number()]) })).nullish(),
+		}),
+	),
+});
+const formSchema = z.object({
+	questions: z.array(questionSchema).nullish(),
+	location_questions: z.array(questionSchema).nullish(),
+	/** The classic EEO block: veteran status, disability, race, gender. */
+	compliance: z.array(z.object({ questions: z.array(questionSchema) })).nullish(),
+	/** The newer self-identification survey, which flags its decline choices. */
+	demographic_questions: z
+		.object({
+			questions: z.array(
+				z.object({
+					id: z.number(),
+					label: z.string(),
+					required: z.boolean().nullish(),
+					type: z.string(),
+					answer_options: z.array(
+						z.object({ id: z.number(), label: z.string(), decline_to_answer: z.boolean().nullish() }),
+					),
+				}),
+			),
+		})
+		.nullish(),
+});
+
+const FIELD_TYPES: Record<string, QuestionType> = {
+	input_text: "text",
+	textarea: "textarea",
+	multi_value_single_select: "single_select",
+	multi_value_multi_select: "multi_select",
+	input_file: "file",
+};
+
+/** "VeteranStatus" → "Veteran status": compliance labels are field names. */
+const spaced = (label: string) =>
+	label.replace(/([a-z])([A-Z])/g, (_, a: string, b: string) => `${a} ${b.toLowerCase()}`).trim();
+
+/**
+ * Translates the posting's form (`questions=true`). A question is typed by its first visible
+ * field (Resume/CV is a file with a paste-in alternative). Hidden fields, such as the
+ * location's coordinates, and field types not listed are left out: the browser discovers
+ * anything else on the live form (§10).
+ */
+function toQuestions(form: z.infer<typeof formSchema>): ApplicationQuestion[] {
+	const questions: ApplicationQuestion[] = [];
+	const add = (q: z.infer<typeof questionSchema>, section: ApplicationQuestion["section"]) => {
+		const field = q.fields.find((f) => f.type !== "input_hidden");
+		const type = field && FIELD_TYPES[field.type];
+		if (!field || !type) return;
+		questions.push({
+			id: field.name,
+			label: section === "eeo" ? spaced(q.label) : q.label.trim(),
+			description: q.description ? sanitizedMarkdown(q.description) || null : null,
+			required: q.required ?? false,
+			type,
+			options: (field.values ?? []).map((v) => ({ label: v.label.trim(), value: String(v.value), decline: false })),
+			section,
+		});
+	};
+	for (const q of form.questions ?? []) add(q, "application");
+	for (const q of form.location_questions ?? []) add(q, "application");
+	for (const block of form.compliance ?? []) for (const q of block.questions) add(q, "eeo");
+	for (const q of form.demographic_questions?.questions ?? []) {
+		const type = FIELD_TYPES[q.type];
+		if (type !== "single_select" && type !== "multi_select") continue;
+		questions.push({
+			id: `demographic_${q.id}`,
+			label: q.label.trim(),
+			description: null,
+			required: q.required ?? false,
+			type,
+			options: q.answer_options.map((o) => ({
+				label: o.label.trim(),
+				value: String(o.id),
+				decline: o.decline_to_answer ?? false,
+			})),
+			section: "eeo",
+		});
+	}
+	return questions;
+}
 
 /** A metadata field the employer filled in to state the workplace arrangement, mapped only on an exact value. */
 const WORKPLACE_FIELD = /^(location|workplace|work location) type$/i;
@@ -124,6 +224,15 @@ export function createGreenhouseAdapter(http: SourceHttp): SourceAdapter {
 				toPosting(ref.board.token, response.body) ??
 				({ failure: "MALFORMED", detail: "unexpected job shape" } satisfies ListingFailure)
 			);
+		},
+
+		async fetchQuestions(ref) {
+			const url = `${API}/${encodeURIComponent(ref.board.token)}/jobs/${encodeURIComponent(ref.nativeId)}?questions=true`;
+			const response = await http.getJson(url);
+			if ("failure" in response) return response.failure === "NOT_FOUND" ? { gone: true } : response;
+			const form = formSchema.safeParse(response.body);
+			if (!form.success) return { failure: "MALFORMED", detail: "unexpected question shape" } satisfies ListingFailure;
+			return toQuestions(form.data);
 		},
 	};
 }

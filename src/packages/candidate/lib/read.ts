@@ -92,6 +92,25 @@ export type ContextFact = {
 	conflictsWith?: string[];
 };
 
+/** What an Answer Policy is about: the class of application question it governs (PRD §40). */
+export const POLICY_TOPICS = [
+	"work_authorization",
+	"sponsorship",
+	"relocation",
+	"gender",
+	"race",
+	"veteran",
+	"disability",
+	"sexual_orientation",
+] as const;
+export type PolicyTopic = (typeof POLICY_TOPICS)[number];
+
+/**
+ * The Candidate's standing instruction for one class of question (#10): the answer to give,
+ * or null to decline. It can never override an Authoritative Fact.
+ */
+export type AnswerPolicy = { id: string; topic: PolicyTopic; answer: string | null };
+
 export type CandidateContext = {
 	facts: ContextFact[];
 	entries: { id: string; kind: EntryKind; parentId: string | null; facts: ContextFact[] }[];
@@ -99,6 +118,8 @@ export type CandidateContext = {
 	authoritativeFacts: (ContextFact & { entryId: string | null })[];
 	/** Base Resumes (seeded from uploaded resumes, §8) are not built yet. */
 	baseResume: null;
+	/** The applicable Answer Policies. Standing answers (§8) are not captured yet, so this is empty. */
+	answerPolicies: AnswerPolicy[];
 	budget: { limitTokens: number; usedTokens: number; omittedFactIds: string[] };
 };
 
@@ -155,6 +176,7 @@ export async function buildCandidateContext(
 			.filter((entry) => entry.facts.length > 0),
 		authoritativeFacts: authoritative.map((fact) => ({ ...view(fact), entryId: fact.entryId })),
 		baseResume: null,
+		answerPolicies: [],
 		budget: { limitTokens, usedTokens, omittedFactIds },
 	};
 }

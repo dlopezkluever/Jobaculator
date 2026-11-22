@@ -11,7 +11,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { opportunity } from "../../discovery/tables";
-import type { JobSnapshot, ResumeDocument, Strategy, TemplateId } from "../../generation/index";
+import type { ApplicationAnswer, JobSnapshot, ResumeDocument, Strategy, TemplateId } from "../../generation/index";
 import { hunt } from "../../hunts/tables";
 import { match } from "../../matching/tables";
 import { blob } from "../../storage/tables";
@@ -75,6 +75,11 @@ export const applicationPackage = pgTable(
 		resumeTemplate: text("resume_template").$type<TemplateId>(),
 		resumePdf: text("resume_pdf").references(() => blob.hash),
 		resumePages: integer("resume_pages"),
+		/** The Application Answers (#16), one per question of the posting's form, with class and sources. */
+		answers: jsonb("answers").$type<ApplicationAnswer[]>(),
+		answersInputHash: text("answers_input_hash"),
+		/** Null when code answered every question without a model call. */
+		answersCallId: uuid("answers_call_id"),
 		/** The most recent AI failure of preparation, so the same failure repeating can suspend it. */
 		failure: jsonb("failure").$type<PreparationFailure>(),
 		/** Paid retries stopped after repeated identical failures, until the User's AI keys or settings change. */

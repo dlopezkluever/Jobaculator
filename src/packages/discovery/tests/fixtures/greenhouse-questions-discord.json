@@ -1,0 +1,579 @@
+{
+	"note": "Recorded from the live Greenhouse job-board API (questions=true), unmodified.",
+	"recordedAt": "2026-11-22T15:06:50Z",
+	"url": "https://boards-api.greenhouse.io/v1/boards/discord/jobs/8945798002?questions=true",
+	"body": {
+		"absolute_url": "https://job-boards.greenhouse.io/discord/jobs/8945798002",
+		"data_compliance": [
+			{
+				"type": "gdpr",
+				"requires_consent": false,
+				"requires_processing_consent": false,
+				"requires_retention_consent": false,
+				"retention_period": null,
+				"demographic_data_consent_applies": true
+			}
+		],
+		"education": "education_optional",
+		"internal_job_id": 6585097002,
+		"location": {
+			"name": "Los Angeles Metropolitan Area or New York City Metropolitan Area"
+		},
+		"metadata": [
+			{
+				"id": 4105571002,
+				"name": "Featured on Website",
+				"value": [],
+				"value_type": "multi_select"
+			},
+			{
+				"id": 96196709002,
+				"name": "Careers Site Department",
+				"value": null,
+				"value_type": "single_select"
+			}
+		],
+		"id": 8945798002,
+		"updated_at": "2026-11-19T21:12:00-05:00",
+		"requisition_id": "R-107498",
+		"title": "Account Executive, Media & Entertainment",
+		"company_name": "Discord",
+		"first_published": "2026-11-19T21:12:00-05:00",
+		"language": "en",
+		"application_deadline": null,
+		"content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;Discord has a highly engaged community of millions of daily active users who use the platform for many different reasons, but there’s one thing that nearly everyone does: &lt;strong&gt;play video games.&lt;/strong&gt; Discord plays a uniquely important role in the future of gaming, and we are focused on making it easier and more fun for people to hang out before, during, and after playing games.&lt;/p&gt;&lt;/div&gt;&lt;p&gt;We are seeking an experienced Account Executive to join our Media &amp;amp; Entertainment vertical within Discord&#39;s Advertising Solutions (Quests) organization. This role is perfect for someone passionate about the entertainment industry and eager to help entertainment marketers leverage innovative products to engage a highly coveted audience.&lt;/p&gt;\n&lt;p&gt;This is a global role where you will work in a dynamic environment to build and grow a fast-expanding business line at Discord. You will harness your prior experience in advertising/media/marketing spaces and bring a combination of strategic business thinking, industry relationships, product insights, and an ability to build a significant, recurring book of business with clients.&lt;/p&gt;\n&lt;p&gt;&lt;strong&gt;What You&#39;ll Be Doing&lt;/strong&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;&lt;strong&gt;Identify and address clients&#39; marketing needs&lt;/strong&gt;&lt;/li&gt;\n&lt;ul&gt;\n&lt;li&gt;Develop tailored solutions and proposals that deliver value to entertainment industry clients&lt;/li&gt;\n&lt;li&gt;Leverage Discord Quests to create multi-phase campaign strategies that maximize client ROI&lt;/li&gt;\n&lt;/ul&gt;\n&lt;li&gt;&lt;strong&gt;In order to hit revenue and account goals, you will:&lt;/strong&gt;&lt;/li&gt;\n&lt;ul&gt;\n&lt;li&gt;Prospect and source media buying opportunities with film studios, streaming platforms, television networks, and their media agencies&lt;/li&gt;\n&lt;li&gt;Build and deepen relationships within the entertainment industry with stakeholders &amp;amp; key decision makers at the brand direct and agency levels&lt;/li&gt;\n&lt;li&gt;Develop and pitch multi-title, multi-phase campaign strategies (e.g., trailer 1 → trailer 2 → release → streaming) to increase deal size and client success&lt;/li&gt;\n&lt;li&gt;Negotiate and close deals to meet revenue and account goals, with focus on bundled Quest offerings&lt;/li&gt;\n&lt;li&gt;Help clients achieve business and marketing goals using Discord&#39;s Quest solutions&lt;/li&gt;\n&lt;/ul&gt;\n&lt;li&gt;&lt;strong&gt;Deploy effective and repeatable sales strategies&lt;/strong&gt;&lt;/li&gt;\n&lt;ul&gt;\n&lt;li&gt;Apply an account planning process to prioritize accounts, grow revenue, educate clients, lead strategic client conversations, and navigate complex relationships&lt;/li&gt;\n&lt;li&gt;Create and convey compelling sales presentations and proposals utilizing internal and external data&lt;/li&gt;\n&lt;li&gt;Drive insights from campaign performance data and measurement tools to demonstrate ROI and secure follow-on business&lt;/li&gt;\n&lt;/ul&gt;\n&lt;li&gt;&lt;strong&gt;Become an expert in Discord solutions and adapt recommendations to suit varying entertainment client needs&lt;/strong&gt;&lt;/li&gt;\n&lt;ul&gt;\n&lt;li&gt;Master Quests and emerging advertising products&lt;/li&gt;\n&lt;li&gt;Bring creative concepting skills to RFP responses, developing innovative campaign ideas that differentiate Discord&#39;s offering&lt;/li&gt;\n&lt;li&gt;Consult with clients and contribute to marketing and media plans that enable them to reach their target audiences on Discord&lt;/li&gt;\n&lt;/ul&gt;\n&lt;li&gt;&lt;strong&gt;Demonstrate expertise around the gaming, media, and marketing spaces&lt;/strong&gt;&lt;/li&gt;\n&lt;ul&gt;\n&lt;li&gt;Represent Discord at key industry events and festivals (e.g., CinemaCon, Sundance, SXSW, Comic-Con, Cannes)&lt;/li&gt;\n&lt;li&gt;Build relationships during critical budget allocation cycles&lt;/li&gt;\n&lt;li&gt;Share insights to clients, within Discord, and in industry forums&lt;/li&gt;\n&lt;/ul&gt;\n&lt;li&gt;&lt;strong&gt;Collaborate cross-functionally to drive product innovation&lt;/strong&gt;&lt;/li&gt;\n&lt;ul&gt;\n&lt;li&gt;Provide product feedback and feature requests to influence Discord&#39;s advertising roadmap&lt;/li&gt;\n&lt;li&gt;Work with Revenue Operations, Product Marketing, Data Science, and Product teams to deliver exceptional client outcomes&lt;/li&gt;\n&lt;li&gt;Analyze data and identify insights to assess campaign performance and inform product improvements&lt;/li&gt;\n&lt;/ul&gt;\n&lt;/ul&gt;\n&lt;p&gt;&lt;strong&gt;What you should have&lt;/strong&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;&lt;strong&gt;6+ years of experience&lt;/strong&gt; as an Account Executive in direct ad sales, media buying, or digital advertising, with a focus on the entertainment industry&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Proven track record&lt;/strong&gt; of meeting or exceeding account and revenue goals&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Established relationships&lt;/strong&gt; with the largest entertainment companies in the world&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Experience in managing entertainment clients&lt;/strong&gt; throughout the funnel with a deep understanding of their challenges and objectives, particularly around theatrical releases, streaming content, and tune-in campaigns&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Experience in building relationships&lt;/strong&gt; with top marketing decision-makers in the entertainment industry and their agencies&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Creative and strategic thinking abilities&lt;/strong&gt; to develop innovative campaign concepts that serve as differentiators in competitive RFP processes&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Ability to analyze data and identify insights&lt;/strong&gt; to assess campaign performance, leverage measurement tools (e.g., brand lift, tune-in metrics), and demonstrate value to clients&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Ability to proactively troubleshoot and problem-solve&lt;/strong&gt; quickly and through the proper escalation channels&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Experience with marketing and ad technology ecosystem&lt;/strong&gt; including ability to collect and convey product needs as well as working cross-functionally to diagnose and solve technical problems for clients&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Experience in negotiating and structuring&lt;/strong&gt; standard and non-standard ad-buying agreements, including multi-title bundles and endeavor agreements&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Willingness to travel&lt;/strong&gt; as 20-30% of job duties, including attendance at industry events and client meetings&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&lt;strong&gt;Bonus points&lt;/strong&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;Experience mentoring or coaching other sellers, or working as a player-coach on a sales team.&lt;/li&gt;\n&lt;li&gt;Experience leading cross-functional deal teams or guiding peers through complex, multi-stakeholder pursuits.&lt;/li&gt;\n&lt;li&gt;Experience selling performance or subscription-acquisition campaigns for streaming or audio services.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&lt;em&gt;This position is US-based only. We are seeking candidates located in the Los Angeles Metropolitan Area or New York City Metropolitan Area, or who are willing to relocate to either of those areas. Relocation assistance may be available.&amp;nbsp;&lt;/em&gt;&lt;/p&gt;\n&lt;p&gt;&lt;em&gt;For this role, there is no formal requirement to work from the office.&lt;/em&gt;&lt;/p&gt;&lt;div class=&quot;content-pay-transparency&quot;&gt;&lt;div class=&quot;pay-input&quot;&gt;&lt;div class=&quot;description&quot;&gt;&lt;p&gt;&lt;em&gt;This position is commission-based and is eligible for variable incentive. The On Target Earnings (OTE) range for this full-time position is listed below. This position will also be eligible for equity and benefits. Benefits include medical, dental, and vision insurance; a 401(k) plan; life and disability insurance; paid vacation, sick time, and holidays; and paid parental, medical, and caregiver leave. Our ranges are determined by role and level. Within the range, individual pay is determined by additional factors, including job-related skills, experience, and relevant education or training. Please note that the compensation details listed in role postings reflect the On Target Earnings only, and do not include equity, or benefits. Applications for this role are accepted on an ongoing basis.&lt;/em&gt;&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;title&quot;&gt;On Target Earnings&lt;/div&gt;&lt;div class=&quot;pay-range&quot;&gt;&lt;span&gt;$272,000&lt;/span&gt;&lt;span class=&quot;divider&quot;&gt;&amp;mdash;&lt;/span&gt;&lt;span&gt;$306,000 USD&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;content-conclusion&quot;&gt;&lt;p&gt;&lt;strong&gt;Why Discord?&amp;nbsp;&lt;/strong&gt;&lt;br&gt;&lt;br&gt;Discord plays a uniquely important role in the future of gaming. We&#39;re a multiplatform, multigenerational and multiplayer platform that helps people deepen their friendships around games and shared interests, and helps developers build and grow their businesses. We believe games give us a way to have fun with our favorite people, whether listening to music together or grinding in competitive matches for diamond rank. &lt;strong&gt;Join us in our mission! Your future is just a click away!&lt;/strong&gt;&lt;/p&gt;\n&lt;p&gt;&lt;strong&gt;Discord is committed to inclusion and providing reasonable accommodations during the interview process. &lt;/strong&gt;We want you to feel set up for success, so if you are in need of reasonable accommodations, please let your recruiter know.&lt;/p&gt;\n&lt;p&gt;&lt;em&gt;&lt;strong&gt;Please see our Applicant and Candidate Privacy Policy for details regarding Discord’s collection and usage of personal information relating to the application and recruitment process by clicking&amp;nbsp;&lt;a href=&quot;https://discord.com/terms/applicant-candidate-privacy-policy&quot;&gt;HERE.&lt;/a&gt;&lt;/strong&gt;&lt;/em&gt;&lt;/p&gt;&lt;/div&gt;",
+		"departments": [
+			{
+				"id": 4099568002,
+				"name": "Advertising Solutions",
+				"child_ids": [],
+				"parent_id": 4109059002
+			}
+		],
+		"offices": [
+			{
+				"id": 4105189002,
+				"name": "Los Angeles, CA",
+				"location": "Los Angeles, California, United States",
+				"child_ids": [],
+				"parent_id": null
+			},
+			{
+				"id": 4105187002,
+				"name": "New York, NY",
+				"location": "New York, New York, United States",
+				"child_ids": [],
+				"parent_id": null
+			}
+		],
+		"ai_disclaimer": null,
+		"include_ai_disclaimer": false,
+		"ai_opt_out_request_url": "http://app2.greenhouse.io/ai_opt_out_request/job_post/8945798002/ai_opt_out",
+		"compliance": null,
+		"demographic_questions": {
+			"header": "Voluntary Self Identification",
+			"description": "<p>For government reporting purposes (EEO-1), we ask candidates to respond to the below self-identification survey. Discord is required to file annual demographic reports with the Equal Employment Opportunity Commission. Your responses help us meet this obligation. Each question below includes an &ldquo;I don&rsquo;t wish to answer&rdquo; option.&nbsp; Whatever your decision, it will not be considered in the hiring process or thereafter. Any information that you do provide will be recorded and maintained in a confidential file.</p>\n<p>Additionally, we also have [optional] questions. These help us understand the composition of our broader applicant pool and have no impact on your application or hiring decisions. Your answers are kept secure, pseudonymized, and separate from your application and personal data. By answering, you consent to our use of your responses for the reasons above. If you change your mind later about sharing this information, you can withdraw consent anytime by reaching out to us at privacy@discordapp.com.</p>\n<p>Discord is an Equal Employment Opportunity employer. We do not discriminate on the basis of race, color, religion, sex (including pregnancy, childbirth, and related medical conditions), gender identity, gender expression, sexual orientation, national origin, ancestry, age, marital status, disability, medical condition, genetic information, military or veteran status, citizenship status, or any other characteristic protected by applicable federal, state, or local law.&nbsp; This policy applies to all aspects of employment, including hiring, promotion, compensation, discipline, termination, and access to benefits and training.</p>",
+			"questions": [
+				{
+					"id": 4033064002,
+					"label": "Gender",
+					"required": true,
+					"type": "multi_value_single_select",
+					"answer_options": [
+						{
+							"id": 4196776002,
+							"label": "Male",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196777002,
+							"label": "Female",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196778002,
+							"label": "I don't wish to answer",
+							"free_form": false,
+							"decline_to_answer": true
+						}
+					]
+				},
+				{
+					"id": 4033065002,
+					"label": "Race and Ethnicity",
+					"required": true,
+					"type": "multi_value_single_select",
+					"answer_options": [
+						{
+							"id": 4196779002,
+							"label": "American Indian or Alaska Native",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196780002,
+							"label": "I don't wish to answer",
+							"free_form": false,
+							"decline_to_answer": true
+						},
+						{
+							"id": 4196781002,
+							"label": "Asian",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196782002,
+							"label": "Black or African American",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196783002,
+							"label": "Hispanic or Latino",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196784002,
+							"label": "Native Hawaiian or Other Pacific Islander",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196785002,
+							"label": "Two or More Races",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196786002,
+							"label": "White",
+							"free_form": false,
+							"decline_to_answer": false
+						}
+					]
+				},
+				{
+					"id": 4033066002,
+					"label": "Veteran Status",
+					"required": true,
+					"type": "multi_value_single_select",
+					"answer_options": [
+						{
+							"id": 4196787002,
+							"label": "I am not a protected veteran",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196788002,
+							"label": "I identify as one or more of the classifications of a protected veteran",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196789002,
+							"label": "I don't wish to answer",
+							"free_form": false,
+							"decline_to_answer": true
+						}
+					]
+				},
+				{
+					"id": 4033067002,
+					"label": "Disability Status",
+					"required": true,
+					"type": "multi_value_single_select",
+					"answer_options": [
+						{
+							"id": 4196790002,
+							"label": "Yes, I have a disability, or have had one in the past",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196791002,
+							"label": "No, I do not have a disability and have not had one in the past",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196792002,
+							"label": "I don't wish to answer",
+							"free_form": false,
+							"decline_to_answer": true
+						}
+					]
+				},
+				{
+					"id": 4033068002,
+					"label": "Gender Identity (optional)",
+					"required": false,
+					"type": "multi_value_single_select",
+					"answer_options": [
+						{
+							"id": 4196793002,
+							"label": "Man",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196794002,
+							"label": "Woman",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196795002,
+							"label": "Non-binary or third gender",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196796002,
+							"label": "Genderqueer",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196797002,
+							"label": "I don't wish to answer",
+							"free_form": false,
+							"decline_to_answer": false
+						}
+					]
+				},
+				{
+					"id": 4033069002,
+					"label": "Race or Ethnicity (optional)",
+					"required": false,
+					"type": "multi_value_multi_select",
+					"answer_options": [
+						{
+							"id": 4196798002,
+							"label": "Black or of African descent",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196799002,
+							"label": "East Asian",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196800002,
+							"label": "Hispanic, Latine or of Spanish Origin",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196801002,
+							"label": "Indigenous, American Indian or Alaska Native",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196802002,
+							"label": "Middle Eastern or North African Native",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196803002,
+							"label": "Hawaiian or Pacific Islander",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196804002,
+							"label": "South Asian",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196805002,
+							"label": "Southeast Asian",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196806002,
+							"label": "White or European",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196807002,
+							"label": "I don't wish to answer",
+							"free_form": false,
+							"decline_to_answer": false
+						}
+					]
+				},
+				{
+					"id": 4033070002,
+					"label": "I consider myself a member of the LGBTQ+ community. (optional)",
+					"required": false,
+					"type": "multi_value_single_select",
+					"answer_options": [
+						{
+							"id": 4196808002,
+							"label": "Yes",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196809002,
+							"label": "No",
+							"free_form": false,
+							"decline_to_answer": false
+						},
+						{
+							"id": 4196810002,
+							"label": "I don't wish to answer",
+							"free_form": false,
+							"decline_to_answer": false
+						}
+					]
+				}
+			]
+		},
+		"questions": [
+			{
+				"description": null,
+				"label": "First Name",
+				"required": true,
+				"fields": [
+					{
+						"name": "first_name",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Last Name",
+				"required": true,
+				"fields": [
+					{
+						"name": "last_name",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Email",
+				"required": true,
+				"fields": [
+					{
+						"name": "email",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Phone",
+				"required": true,
+				"fields": [
+					{
+						"name": "phone",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Resume/CV",
+				"required": false,
+				"fields": [
+					{
+						"name": "resume",
+						"type": "input_file",
+						"values": []
+					},
+					{
+						"name": "resume_text",
+						"type": "textarea",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Cover Letter",
+				"required": false,
+				"fields": [
+					{
+						"name": "cover_letter",
+						"type": "input_file",
+						"values": []
+					},
+					{
+						"name": "cover_letter_text",
+						"type": "textarea",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Why do you want to work at Discord?",
+				"required": true,
+				"fields": [
+					{
+						"name": "question_39255646002",
+						"type": "textarea",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "LinkedIn Profile",
+				"required": false,
+				"fields": [
+					{
+						"name": "question_39255647002",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Website",
+				"required": false,
+				"fields": [
+					{
+						"name": "question_39255648002",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "How did you hear about this job?",
+				"required": false,
+				"fields": [
+					{
+						"name": "question_39255649002",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Are you legally authorized to work in the United States for our Company?",
+				"required": true,
+				"fields": [
+					{
+						"name": "question_39255650002",
+						"type": "multi_value_single_select",
+						"values": [
+							{
+								"label": "Yes",
+								"value": 1
+							},
+							{
+								"label": "No",
+								"value": 0
+							}
+						]
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Are you currently located in the US?",
+				"required": true,
+				"fields": [
+					{
+						"name": "question_39255651002",
+						"type": "multi_value_single_select",
+						"values": [
+							{
+								"label": "Yes",
+								"value": 1
+							},
+							{
+								"label": "No",
+								"value": 0
+							}
+						]
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Are you currently based in or willing to relocate to LA or NY for this position? ",
+				"required": true,
+				"fields": [
+					{
+						"name": "question_39255652002",
+						"type": "multi_value_single_select",
+						"values": [
+							{
+								"label": "Yes",
+								"value": 1
+							},
+							{
+								"label": "No",
+								"value": 0
+							}
+						]
+					}
+				]
+			}
+		],
+		"location_questions": [
+			{
+				"description": null,
+				"label": "Longitude",
+				"required": true,
+				"fields": [
+					{
+						"name": "longitude",
+						"type": "input_hidden",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Latitude",
+				"required": true,
+				"fields": [
+					{
+						"name": "latitude",
+						"type": "input_hidden",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Location",
+				"required": true,
+				"fields": [
+					{
+						"name": "location",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			}
+		]
+	}
+}

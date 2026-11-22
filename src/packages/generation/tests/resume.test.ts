@@ -79,6 +79,7 @@ function candidate(): CandidateContext {
 		entries,
 		authoritativeFacts: all.filter((f) => f.authoritative).map((f) => ({ ...f, entryId: null })),
 		baseResume: null,
+		answerPolicies: [],
 		// A fact the context budget left out is still the Candidate's, so citing it is valid.
 		budget: { limitTokens: 60_000, usedTokens: 1_000, omittedFactIds: ["f-omitted"] },
 	};

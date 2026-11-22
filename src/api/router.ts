@@ -12,6 +12,8 @@ import {
 	updateAiSettings,
 } from "../packages/ai/index";
 import { countInFlight, getApplication, getPackage, listApplications } from "../packages/applications/index";
+import { getKnowledgeBase } from "../packages/candidate/index";
+import { factKind, isFactKindName } from "../packages/candidate/kinds";
 import { isSessionLockHeld } from "../packages/db/index";
 import { getOpportunity, listOpportunities, listWatchedBoards } from "../packages/discovery/index";
 import { listEvents } from "../packages/events/index";
@@ -163,11 +165,23 @@ export const appRouter = router({
 		get: authedProcedure.input(z.object({ id: z.uuid() })).query(async ({ ctx, input }) => {
 			const application = await getApplication(ctx.db, ctx.userId, input.id);
 			if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No such Application" });
-			const [pkg, opportunity, hunt] = await Promise.all([
+			const [pkg, opportunity, hunt, knowledge] = await Promise.all([
 				getPackage(ctx.db, ctx.userId, application.id),
 				getOpportunity(ctx.db, ctx.userId, application.opportunityId),
 				getHunt(ctx.db, ctx.userId, application.drivingHuntId),
+				getKnowledgeBase(ctx.db, ctx.userId),
 			]);
+			// What each answer rests on, as the Candidate reads it. Standing answers are not stored yet (§8).
+			const facts = new Map(
+				[...knowledge.facts, ...knowledge.entries.flatMap((e) => e.facts)].map((f) => [
+					f.id,
+					`${isFactKindName(f.kind) ? factKind(f.kind).label : f.kind}: ${f.value}`,
+				]),
+			);
+			const sourceLabel = (id: string) =>
+				id.startsWith("hunt:")
+					? `Hunt targeting: ${hunt?.name ?? "the Driving Hunt"}`
+					: (facts.get(id) ?? "Since removed from your profile");
 			return {
 				id: application.id,
 				status: application.status,
@@ -183,6 +197,7 @@ export const appRouter = router({
 					strategy: pkg.strategy,
 					resume: pkg.resume,
 					resumePages: pkg.resumePages,
+					answers: pkg.answers?.map((a) => ({ ...a, sourceLabels: a.sources.map(sourceLabel) })) ?? null,
 					hasResumePdf: pkg.resumePdf !== null,
 					suspended: pkg.suspendedAt !== null,
 				},

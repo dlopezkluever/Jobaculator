@@ -7,7 +7,7 @@ import {
 	sanitizedMarkdown,
 	USER_AGENT,
 } from "../index";
-import { boardFixture, boardRoutes, greenhouseOver, type Route, routedFetch } from "./helpers";
+import { boardFixture, boardRoutes, greenhouseOver, questionsFixture, type Route, routedFetch } from "./helpers";
 
 const stripe = { source: "greenhouse", token: "stripe" } as const;
 
@@ -74,6 +74,66 @@ describe("Greenhouse adapter", () => {
 			nativeId: "5426468004",
 		});
 		expect(posting).toMatchObject({ salary: { min: 165000, max: 190000, currency: "USD" } });
+	});
+
+	it("translates a recorded posting form into its application questions", async () => {
+		const read = async (token: string, nativeId: string) => {
+			const fixture = questionsFixture(token);
+			const adapter = greenhouseOver(new Map([[fixture.url, { status: 200, body: fixture.body }]]));
+			const found = await adapter.fetchQuestions({ board: { source: "greenhouse", token }, nativeId });
+			if (!Array.isArray(found)) throw new Error("no questions");
+			return found;
+		};
+		const anthropic = await read("anthropic", "5456619008");
+		expect(anthropic.slice(0, 5).map((q) => [q.id, q.type, q.required])).toEqual([
+			["first_name", "text", true],
+			["last_name", "text", true],
+			["email", "text", true],
+			["phone", "text", true],
+			// A file with a paste-in alternative is a file question.
+			["resume", "file", true],
+		]);
+		expect(anthropic.find((q) => q.id === "question_19018744008")).toEqual({
+			id: "question_19018744008",
+			label: "Do you require visa sponsorship?",
+			description: null,
+			required: true,
+			type: "single_select",
+			options: [
+				{ label: "Yes", value: "1", decline: false },
+				{ label: "No", value: "0", decline: false },
+			],
+			section: "application",
+		});
+		// The arbitration agreement's HTML arrives as Markdown, never as HTML.
+		const arbitration = anthropic.find((q) => q.label === "Please read the arbitration agreement below");
+		expect(arbitration?.description).toMatch(/^\*\*_Agreement to Arbitrate_\*\*/);
+		expect(arbitration?.description).not.toContain("<");
+		// The EEO block follows the form's own questions, with readable labels.
+		expect(anthropic.filter((q) => q.section === "eeo").map((q) => [q.id, q.label, q.required])).toEqual([
+			["veteran_status", "Veteran status", false],
+			["race", "Race", false],
+			["gender", "Gender", false],
+		]);
+
+		// The location's hidden coordinates are not questions; the location itself is.
+		const stripeForm = await read("stripe", "8172510");
+		expect(stripeForm.map((q) => q.id)).not.toContain("latitude");
+		expect(stripeForm.find((q) => q.id === "location")).toMatchObject({ type: "text", required: true });
+		expect(stripeForm.find((q) => q.id === "question_68935510[]")).toMatchObject({ type: "multi_select" });
+
+		// The newer self-identification survey flags its decline choices, which are not always first.
+		const discord = await read("discord", "8945798002");
+		const race = discord.find((q) => q.label === "Race and Ethnicity");
+		expect(race).toMatchObject({ section: "eeo", required: true, type: "single_select" });
+		expect(race?.options[0]).toMatchObject({ label: "American Indian or Alaska Native", decline: false });
+		expect(race?.options.filter((o) => o.decline).map((o) => o.label)).toEqual(["I don't wish to answer"]);
+	});
+
+	it("reports a missing posting's questions as Gone", async () => {
+		const url = "https://boards-api.greenhouse.io/v1/boards/stripe/jobs/1?questions=true";
+		const adapter = greenhouseOver(new Map([[url, { status: 404 }]]));
+		expect(await adapter.fetchQuestions({ board: stripe, nativeId: "1" })).toEqual({ gone: true });
 	});
 
 	it("resolves Board tokens and Board URLs, and nothing else", () => {

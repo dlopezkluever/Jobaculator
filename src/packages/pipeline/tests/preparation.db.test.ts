@@ -11,6 +11,7 @@ import type { UserId } from "../../db/ownership";
 import { createTestDatabase, newUserId, type TestDatabase } from "../../db/testing";
 import {
 	type Adapters,
+	type ApplicationQuestion,
 	getOpportunity,
 	ingest,
 	listWatchedBoards,
@@ -58,7 +59,26 @@ const greenhouse: SourceAdapter = {
 		detailFetches.push(ref.nativeId);
 		return { ...posting(ref.nativeId, "Platform Engineer"), descriptionHtml: "<p>Build <b>platforms</b>.</p>" };
 	},
+	fetchQuestions: async () => [],
 };
+/** The posting's form: identity and EEO, which code answers, unless a test sets more. */
+const IDENTITY_FORM: ApplicationQuestion[] = [
+	{ id: "email", label: "Email", description: null, required: true, type: "text", options: [], section: "application" },
+	{
+		id: "gender",
+		label: "Gender",
+		description: null,
+		required: false,
+		type: "single_select",
+		options: [
+			{ label: "Female", value: "1", decline: false },
+			{ label: "Decline To Self Identify", value: "2", decline: false },
+		],
+		section: "eeo",
+	},
+];
+let form: ApplicationQuestion[] = IDENTITY_FORM;
+greenhouse.fetchQuestions = async () => form;
 const adapters: Adapters = { greenhouse };
 
 function posting(nativeId: string, title: string, descriptionHtml: string | null = null): SourcePosting {
@@ -246,14 +266,23 @@ describe("prepare", () => {
 		expect(pkg?.resumePages).toBe(1);
 		const pdf = await storage.get(pkg?.resumePdf ?? ("" as never));
 		expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
-		expect(await codes(user.owner, applicationId)).toEqual([
-			"application_created",
-			"job_snapshot_captured",
-			"strategy_written",
-			"resume_written",
-		]);
+		const written = await codes(user.owner, applicationId);
+		expect(written.slice(0, 3)).toEqual(["application_created", "job_snapshot_captured", "strategy_written"]);
+		// The resume and the answers are written side by side, in either order; READY comes last.
+		expect(written.slice(3, 5).sort()).toEqual(["answers_written", "resume_written"]);
+		expect(written.slice(5)).toEqual(["application_status_changed"]);
 		const events = await listEvents(database.db, user.owner, { type: APPLICATION_SUBJECT, id: applicationId });
-		expect(events.at(-1)?.payload).toMatchObject({ droppedClaims: 1, trimmedBullets: 0, pages: 1 });
+		expect(events.find((e) => e.code === "resume_written")?.payload).toMatchObject({
+			droppedClaims: 1,
+			trimmedBullets: 0,
+			pages: 1,
+		});
+		// Code answered the whole form, so no `answer` call was made.
+		expect(pkg?.answers?.map((a) => [a.question.id, a.text ?? a.choices[0], a.via])).toEqual([
+			["email", "ada@example.com", "FACT"],
+			["gender", "Decline To Self Identify", "DECLINE"],
+		]);
+		expect(events.at(-1)?.payload).toEqual({ from: "PREPARING", to: "READY" });
 
 		// A repeated job skips every checkpoint: no model call, nothing rewritten.
 		const again = prepare([]);
@@ -267,8 +296,7 @@ describe("prepare", () => {
 		});
 		expect((await getOpportunity(database.db, user.owner, opportunityId))?.title).toBe("Principal Engineer");
 		expect((await getPackage(database.db, user.owner, applicationId))?.jobSnapshot).toEqual(pkg?.jobSnapshot);
-		// The Application stays PREPARING: answers (TB1-12) take it to READY.
-		expect((await getApplication(database.db, user.owner, applicationId))?.status).toBe("PREPARING");
+		expect((await getApplication(database.db, user.owner, applicationId))?.status).toBe("READY");
 	});
 
 	it("keeps progress through repeated AI failures, suspends paid retries, and resumes when the AI setup changes", async () => {
@@ -315,5 +343,83 @@ describe("prepare", () => {
 		expect(done?.resume?.experience.map((e) => e.employer)).toEqual(["Analytical Engines Ltd"]);
 		expect(await codes(user.owner, applicationId)).toContain("preparation_resumed");
 		expect(detailFetches).toEqual([id]);
+		expect((await getApplication(database.db, user.owner, applicationId))?.status).toBe("READY");
+	});
+
+	it("answers the rest in one call, keeps the answers, and needs the Candidate only for a required gap", async () => {
+		const user = await newCandidate();
+		const { applicationId } = await queuedApplication(user, "<p>Run our LLM platform.</p>");
+		const yesNo = [
+			{ label: "Yes", value: "1", decline: false },
+			{ label: "No", value: "0", decline: false },
+		];
+		const select = (id: string, label: string, required: boolean): ApplicationQuestion => ({
+			id,
+			label,
+			description: null,
+			required,
+			type: "single_select",
+			options: yesNo,
+			section: "application",
+		});
+		form = [
+			...IDENTITY_FORM,
+			select("question_1", "Do you require visa sponsorship?", true),
+			select("question_2", "Have you worked here before?", true),
+			{ ...select("question_3", "Website", false), type: "text", options: [] },
+		];
+		const accomplishment = user.factOf("accomplishment").id;
+		try {
+			const { llm, pipeline } = prepare([
+				strategyStep([accomplishment]),
+				// The resume and the answers run side by side; the resume's call starts first.
+				{ task: "write", output: { summary: null, skills: [], entries: [] } },
+				{
+					task: "answer",
+					output: {
+						answers: [
+							// Nothing states sponsorship: no answer, so the Candidate is asked.
+							{ questionId: "question_1", class: "AUTHORITATIVE", text: null, choices: [], cites: [] },
+							{
+								questionId: "question_2",
+								class: "INFERABLE",
+								text: null,
+								choices: ["No"],
+								cites: [user.factOf("employer").id],
+							},
+							{ questionId: "question_3", class: "UNKNOWN", text: null, choices: [], cites: [] },
+						],
+					},
+				},
+			]);
+			await pipeline.runPrepare(user.owner, applicationId);
+			expect(llm.remaining()).toBe(0);
+			const answerCall = llm.calls[2];
+			expect(answerCall?.method === "generate" && answerCall.request.attribution.applicationId).toBe(applicationId);
+			const pkg = await getPackage(database.db, user.owner, applicationId);
+			expect(pkg?.answers?.map((a) => [a.question.id, a.class, a.choices, a.escalation])).toEqual([
+				["email", "AUTHORITATIVE", [], null],
+				["gender", "OPTIONAL_DISCLOSURE", ["Decline To Self Identify"], null],
+				["question_1", "AUTHORITATIVE", [], "AUTHORITATIVE_FACT_REQUIRED"],
+				["question_2", "INFERABLE", ["No"], null],
+				["question_3", "UNKNOWN", [], null],
+			]);
+			expect((await getApplication(database.db, user.owner, applicationId))?.status).toBe("NEEDS_YOU");
+			const events = await listEvents(database.db, user.owner, { type: APPLICATION_SUBJECT, id: applicationId });
+			expect(events.find((e) => e.code === "answers_written")?.payload).toMatchObject({
+				questions: 5,
+				deterministic: 2,
+				blank: 2,
+				droppedAnswers: 0,
+				escalations: [{ questionId: "question_1", escalation: "AUTHORITATIVE_FACT_REQUIRED" }],
+			});
+
+			// Answers are stored once: a repeated job neither calls the model nor moves the Application.
+			const again = prepare([]);
+			await again.pipeline.runPrepare(user.owner, applicationId);
+			expect(again.llm.calls).toHaveLength(0);
+		} finally {
+			form = IDENTITY_FORM;
+		}
 	});
 });

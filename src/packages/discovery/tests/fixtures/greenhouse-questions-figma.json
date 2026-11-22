@@ -1,0 +1,414 @@
+{
+	"note": "Recorded from the live Greenhouse job-board API (questions=true), unmodified.",
+	"recordedAt": "2026-11-22T15:06:50Z",
+	"url": "https://boards-api.greenhouse.io/v1/boards/figma/jobs/5426468004?questions=true",
+	"body": {
+		"absolute_url": "https://boards.greenhouse.io/figma/jobs/5426468004?gh_jid=5426468004",
+		"data_compliance": [
+			{
+				"type": "gdpr",
+				"requires_consent": false,
+				"requires_processing_consent": false,
+				"requires_retention_consent": false,
+				"retention_period": null,
+				"demographic_data_consent_applies": false
+			}
+		],
+		"internal_job_id": 4868517004,
+		"location": {
+			"name": "San Francisco, CA • New York, NY • United States"
+		},
+		"metadata": null,
+		"id": 5426468004,
+		"updated_at": "2026-10-27T13:40:12-04:00",
+		"requisition_id": "1451",
+		"title": "Account Executive, Enterprise",
+		"company_name": "Figma",
+		"first_published": "2025-01-28T18:57:29-05:00",
+		"language": "en",
+		"application_deadline": null,
+		"content": "&lt;div class=&quot;content-intro&quot;&gt;&lt;p&gt;Figma is growing our team of passionate creatives and builders on a mission to make design accessible to all. Figma’s platform helps teams bring ideas to life—whether you&#39;re brainstorming, creating a prototype, translating designs into code, or iterating with AI. From idea to product, Figma empowers teams to streamline workflows, move faster, and work together in real time from anywhere in the world. If you&#39;re excited to shape the future of design and collaboration, join us!&lt;/p&gt;&lt;/div&gt;&lt;p&gt;We are looking for an Enterprise Account Executive who will play a critical role driving sales and maximizing revenue with our Enterprise customers. You will be responsible for targeting, building and nurturing positive relationships with key executive level decision-makers, understanding complex business needs, and delivering innovative solutions across our product suite. This is an opportunity to accelerate your career, learn from leading sellers in the industry and build an incredible network of cross functional partners at Figma.&lt;/p&gt;\n&lt;p&gt;This is a full time role that can be held from one of our US hubs or remotely in the United States.&lt;/p&gt;\n&lt;h4&gt;&lt;strong&gt;What you&#39;ll do at Figma:&lt;/strong&gt;&lt;/h4&gt;\n&lt;ul&gt;\n&lt;li&gt;Create and manage a pipeline of Enterprise accounts to consistently meet or exceed quarterly and annual sales targets&lt;/li&gt;\n&lt;li&gt;Apply effective discovery and value-selling techniques to build and strengthen relationships with key decision-makers in both new and existing customers (5000+ FTEs)&lt;/li&gt;\n&lt;li&gt;Align with executives on business challenges and gain sponsorship for enterprise wide deployments for a suite of products, identifying where Figma’s roadmap and innovations fit in the long term&lt;/li&gt;\n&lt;li&gt;Conduct thorough analysis to create strategic account plans that outline company priorities and initiatives, multi-threading at an executive level to build on expansion opportunities&lt;/li&gt;\n&lt;li&gt;Manage a book of business by tiering accounts and initiating techniques to save contractions&lt;/li&gt;\n&lt;li&gt;Co-create with cross-functional partners to expertly position Figma, drive deals forward and ensure customer success&lt;/li&gt;\n&lt;li&gt;Leverage opportunities to advance executive level relationships through in-person meetings and networking opportunities&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h4&gt;&lt;strong&gt;We&#39;d love to hear from you if you have:&lt;/strong&gt;&lt;/h4&gt;\n&lt;ul&gt;\n&lt;li&gt;Experience closing sales, over multiple years, for a software or SaaS business with an Enterprise book of customers (5000+ FTEs), selling to executives&lt;/li&gt;\n&lt;li&gt;Consistent performance meeting pipeline generation targets for net new business&lt;/li&gt;\n&lt;li&gt;Demonstrated experience successfully managing complex sales cycles (6 months+)&lt;/li&gt;\n&lt;li&gt;A sales methodology and process that creates value for customers&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h4&gt;&lt;strong&gt;While it’s not required, it’s an added plus if you also have:&lt;/strong&gt;&lt;/h4&gt;\n&lt;ul&gt;\n&lt;li&gt;Experience selling solutions to technical audiences at a strategic level (i.e. Engineering, Product, Design teams)&lt;/li&gt;\n&lt;li&gt;Demonstrated ability to succeed in a changing environment&lt;/li&gt;\n&lt;li&gt;Certified in deal qualification and prospect discovery&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;At Figma, one of our values is Grow as you go. We believe in hiring smart, curious people who are excited to learn and develop their skills. If you’re excited about this role but your past experience doesn’t align perfectly with the points outlined in the job description, we encourage you to apply anyways. You may be just the right candidate for this or other roles.&lt;/p&gt;&lt;div class=&quot;content-pay-transparency&quot;&gt;&lt;div class=&quot;pay-input&quot;&gt;&lt;div class=&quot;description&quot;&gt;&lt;p&gt;&lt;strong&gt;&lt;span style=&quot;font-size: 16px;&quot;&gt;Pay Transparency Disclosure&lt;/span&gt;&lt;/strong&gt;&lt;/p&gt;\n&lt;p&gt;Job level and actual compensation will be decided based on factors including, but not limited to, individual qualifications objectively assessed during the interview process (including skills and prior relevant experience, potential impact, and scope of role), market demands, and specific work location.&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;Figma offers equity to employees, as well as a competitive package of additional benefits, including health, dental, and vision coverage; retirement benefits with company contributions; parental leave and reproductive or family planning support; mental health and wellness benefits; and paid time off. Figma provides paid sick leave, holidays, and other leave benefits in compliance with applicable federal, state, and local laws, including the requirements of the Washington Minimum Wage Act and related regulations. Exempt employees are eligible for employer‑provided paid flexible PTO in addition to flexible paid sick leave. PTO is subject to manager approval. Additional benefits may include company recharge days, cell phone and home internet reimbursements, and a number of lifestyle spending accounts. Figma also offers sales incentive compensation for most sales roles and an annual bonus plan for eligible non-sales roles. All compensation and benefits are subject to applicable plan terms and may be modified by Figma at any time, consistent with applicable law.&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;title&quot;&gt;Annual Base Salary Range:&lt;/div&gt;&lt;div class=&quot;pay-range&quot;&gt;&lt;span&gt;$165,000&lt;/span&gt;&lt;span class=&quot;divider&quot;&gt;&amp;mdash;&lt;/span&gt;&lt;span&gt;$190,000 USD&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;content-conclusion&quot;&gt;&lt;p&gt;At Figma we celebrate and support our differences. We know employing a team rich in diverse thoughts, experiences, and opinions allows our employees, our product and our community to flourish. Figma is an &lt;a href=&quot;https://www.eeoc.gov/sites/default/files/2022-10/EEOC_KnowYourRights_screen_reader_10_20.pdf&quot;&gt;equal opportunity workplace&lt;/a&gt; - we are dedicated to equal employment opportunities regardless of race, color, ancestry, religion, sex, national origin, sexual orientation, age, citizenship, marital status, disability, gender identity/expression, veteran status&lt;strong&gt;, &lt;/strong&gt;or any other characteristic protected by law. We also consider qualified applicants regardless of criminal histories, consistent with legal requirements.&lt;/p&gt;\n&lt;p&gt;We will work to ensure individuals with disabilities are provided reasonable accommodation to apply for a role, participate in the interview process, perform essential job functions, and receive other benefits and privileges of employment. If you require accommodation, please reach out to &lt;a href=&quot;mailto:accommodations-ext@figma.com&quot;&gt;accommodations-ext@figma.com&lt;/a&gt;. These modifications enable an individual with a disability to have an equal opportunity not only to get a job, but successfully perform their job tasks to the same extent as people without disabilities.&amp;nbsp;&lt;/p&gt;\n&lt;p&gt;Examples of accommodations include but are not limited to:&amp;nbsp;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;Holding interviews in an accessible location&lt;/li&gt;\n&lt;li&gt;Enabling closed captioning on video conferencing&lt;/li&gt;\n&lt;li&gt;Ensuring all written communication be compatible with screen readers&lt;/li&gt;\n&lt;li&gt;Changing the mode or format of interviews&amp;nbsp;&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;To ensure the integrity of our hiring process and facilitate a more personal connection, we require all candidates keep their cameras on during video interviews. Additionally, if hired you will be required to attend in person onboarding.&lt;/p&gt;\n&lt;p&gt;By applying for this job, the candidate acknowledges and agrees that any personal data contained in their application or supporting materials will be processed in accordance with &lt;a class=&quot;c-link c-link--underline&quot; href=&quot;https://www.figma.com/legal/candidate-privacy-notice/&quot; target=&quot;_blank&quot; data-stringify-link=&quot;https://www.figma.com/legal/candidate-privacy-notice/&quot; data-sk=&quot;tooltip_parent&quot;&gt;Figma&#39;s Candidate Privacy Notice&lt;/a&gt;.&lt;/p&gt;\n&lt;p&gt;&lt;strong&gt;Application limits:&lt;/strong&gt; To help candidates focus on the opportunities most relevant to their skills and experience, Figma limits the number and frequency of applications. These limits apply to all roles:&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;Candidates may submit up to 5 applications during any rolling 30-day period.&lt;/li&gt;\n&lt;li&gt;Candidates may not reapply to the same role while an application is active or within 90 days of receiving a rejection.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;Once the applicable days has passed, candidates are welcome to apply again.&lt;/p&gt;&lt;/div&gt;",
+		"departments": [
+			{
+				"id": 4016255004,
+				"name": "Sales",
+				"child_ids": [],
+				"parent_id": null
+			}
+		],
+		"offices": [
+			{
+				"id": 4031430004,
+				"name": "Canada",
+				"location": null,
+				"child_ids": [4031432004, 4031431004],
+				"parent_id": 4033142004
+			},
+			{
+				"id": 4024285004,
+				"name": "US",
+				"location": null,
+				"child_ids": [],
+				"parent_id": 4033142004
+			}
+		],
+		"ai_disclaimer": null,
+		"include_ai_disclaimer": null,
+		"ai_opt_out_request_url": "http://app4.greenhouse.io/ai_opt_out_request/job_post/5426468004/ai_opt_out",
+		"compliance": [
+			{
+				"type": "eeoc",
+				"questions": [
+					{
+						"required": false,
+						"label": "VeteranStatus",
+						"fields": [
+							{
+								"name": "veteran_status",
+								"type": "multi_value_single_select",
+								"values": [
+									{
+										"label": "I don't wish to answer",
+										"value": "3"
+									},
+									{
+										"label": "I identify as one or more of the classifications of a protected veteran",
+										"value": "2"
+									},
+									{
+										"label": "I am not a protected veteran",
+										"value": "1"
+									}
+								]
+							}
+						]
+					}
+				],
+				"description": "&lt;p&gt;\n  If you believe you belong to any of the categories of protected veterans listed below, please indicate by making the appropriate selection.\n  As a government contractor subject to the Vietnam Era Veterans&#39; Readjustment Assistance Act (VEVRAA), we request this information in order to measure\n  the effectiveness of the outreach and positive recruitment efforts we undertake pursuant to VEVRAA. Classification of protected categories\n  is as follows:\n&lt;/p&gt;\n&lt;p&gt;A &quot;disabled veteran&quot; is one of the following: a veteran of the U.S. military, ground, naval or air service who is entitled to compensation (or who but for the receipt of military retired pay would be entitled to compensation) under laws administered by the Secretary of Veterans Affairs; or a person who was discharged or released from active duty because of a service-connected disability.&lt;/p&gt;\n&lt;p&gt;A &quot;recently separated veteran&quot; means any veteran during the three-year period beginning on the date of such veteran&#39;s discharge or release from active duty in the U.S. military, ground, naval, or air service.&lt;/p&gt;\n&lt;p&gt;An &quot;active duty wartime or campaign badge veteran&quot; means a veteran who served on active duty in the U.S. military, ground, naval or air service during a war, or in a campaign or expedition for which a campaign badge has been authorized under the laws administered by the Department of Defense.&lt;/p&gt;\n&lt;p&gt;An &quot;Armed forces service medal veteran&quot; means a veteran who, while serving on active duty in the U.S. military, ground, naval or air service, participated in a United States military operation for which an Armed Forces service medal was awarded pursuant to Executive Order 12985.&lt;/p&gt;\n"
+			},
+			{
+				"type": "eeoc",
+				"questions": [
+					{
+						"required": false,
+						"label": "Race",
+						"fields": [
+							{
+								"name": "race",
+								"type": "multi_value_single_select",
+								"values": [
+									{
+										"label": "Decline To Self Identify",
+										"value": "8"
+									},
+									{
+										"label": "Two or More Races",
+										"value": "7"
+									},
+									{
+										"label": "Native Hawaiian or Other Pacific Islander",
+										"value": "6"
+									},
+									{
+										"label": "White",
+										"value": "5"
+									},
+									{
+										"label": "Hispanic or Latino",
+										"value": "4"
+									},
+									{
+										"label": "Black or African American",
+										"value": "3"
+									},
+									{
+										"label": "Asian",
+										"value": "2"
+									},
+									{
+										"label": "American Indian or Alaskan Native",
+										"value": "1"
+									}
+								]
+							}
+						]
+					},
+					{
+						"required": false,
+						"label": "Gender",
+						"fields": [
+							{
+								"name": "gender",
+								"type": "multi_value_single_select",
+								"values": [
+									{
+										"label": "Decline To Self Identify",
+										"value": "3"
+									},
+									{
+										"label": "Female",
+										"value": "2"
+									},
+									{
+										"label": "Male",
+										"value": "1"
+									}
+								]
+							}
+						]
+					}
+				],
+				"description": "&lt;h3&gt;&lt;strong&gt;Voluntary Self-Identification&lt;/strong&gt;&lt;/h3&gt;&lt;br/&gt;&lt;p&gt;For government reporting purposes, we ask candidates to respond to the below self-identification survey.\nCompletion of the form is entirely voluntary. Whatever your decision, it will not be considered in the hiring\nprocess or thereafter. Any information that you do provide will be recorded and maintained in a\nconfidential file.&lt;/p&gt;\n\n&lt;p&gt;As set forth in Figma’s Equal Employment Opportunity policy,\nwe do not discriminate on the basis of any protected group status under any applicable law.&lt;/p&gt;\n"
+			}
+		],
+		"demographic_questions": null,
+		"questions": [
+			{
+				"description": null,
+				"label": "First Name",
+				"required": true,
+				"fields": [
+					{
+						"name": "first_name",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Last Name",
+				"required": true,
+				"fields": [
+					{
+						"name": "last_name",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Email",
+				"required": true,
+				"fields": [
+					{
+						"name": "email",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Phone",
+				"required": true,
+				"fields": [
+					{
+						"name": "phone",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Resume/CV",
+				"required": true,
+				"fields": [
+					{
+						"name": "resume",
+						"type": "input_file",
+						"values": []
+					},
+					{
+						"name": "resume_text",
+						"type": "textarea",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "LinkedIn Profile",
+				"required": false,
+				"fields": [
+					{
+						"name": "question_12497118004",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Other Website",
+				"required": false,
+				"fields": [
+					{
+						"name": "question_12497119004",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": "<p>Please share 3-4 sentences on why you want to join Figma</p>",
+				"label": "Why do you want to join Figma?",
+				"required": true,
+				"fields": [
+					{
+						"name": "question_12497120004",
+						"type": "textarea",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": "<p>If you'd like to, please let us know your pronouns.</p>",
+				"label": "Pronouns",
+				"required": false,
+				"fields": [
+					{
+						"name": "question_12497121004",
+						"type": "multi_value_single_select",
+						"values": [
+							{
+								"label": "she/her/hers",
+								"value": 43814851004
+							},
+							{
+								"label": "he/him/his",
+								"value": 43814852004
+							},
+							{
+								"label": "they/them/theirs",
+								"value": 43814853004
+							},
+							{
+								"label": "self-describe",
+								"value": 43814854004
+							}
+						]
+					}
+				]
+			},
+			{
+				"description": "<p>Add a cover letter or anything else you'd like to share</p>",
+				"label": "Additional Information",
+				"required": false,
+				"fields": [
+					{
+						"name": "question_12497122004",
+						"type": "textarea",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": "<p>Please list city and state. (ie: San Francisco, CA)&nbsp;</p>",
+				"label": "From where do you intend to work? ",
+				"required": true,
+				"fields": [
+					{
+						"name": "question_12497123004",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Preferred First Name",
+				"required": false,
+				"fields": [
+					{
+						"name": "question_12497124004",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Are you authorized to work in the country for which you applied? ",
+				"required": true,
+				"fields": [
+					{
+						"name": "question_12497125004",
+						"type": "multi_value_single_select",
+						"values": [
+							{
+								"label": "Yes",
+								"value": 1
+							},
+							{
+								"label": "No",
+								"value": 0
+							}
+						]
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Have you ever worked for Figma before, as an employee or a contractor/consultant? ",
+				"required": true,
+				"fields": [
+					{
+						"name": "question_12497126004",
+						"type": "multi_value_single_select",
+						"values": [
+							{
+								"label": "Yes",
+								"value": 1
+							},
+							{
+								"label": "No",
+								"value": 0
+							}
+						]
+					}
+				]
+			}
+		],
+		"location_questions": [
+			{
+				"description": null,
+				"label": "Longitude",
+				"required": true,
+				"fields": [
+					{
+						"name": "longitude",
+						"type": "input_hidden",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Latitude",
+				"required": true,
+				"fields": [
+					{
+						"name": "latitude",
+						"type": "input_hidden",
+						"values": []
+					}
+				]
+			},
+			{
+				"description": null,
+				"label": "Location",
+				"required": true,
+				"fields": [
+					{
+						"name": "location",
+						"type": "input_text",
+						"values": []
+					}
+				]
+			}
+		]
+	}
+}
