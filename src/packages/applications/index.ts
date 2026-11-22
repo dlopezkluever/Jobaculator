@@ -8,16 +8,40 @@ import { hunt } from "../hunts/tables";
 import type { Match } from "../matching/index";
 import { match } from "../matching/tables";
 import { application } from "./lib/schema";
-import { APPLICATION_STATUSES, type ApplicationStatus, type FrozenEvaluation, TRANSITIONS } from "./lib/types";
+import {
+	APPLICATION_STATUSES,
+	APPLICATION_SUBJECT,
+	type ApplicationStatus,
+	type FrozenEvaluation,
+	TRANSITIONS,
+} from "./lib/types";
 
 // Applications (§4, §5, #9, #12, ADR 0001, 0002, 0004): the single attempt to apply to one
 // Opportunity, its lifecycle, and the Opportunity Value order preparation is pulled in. This
 // module is the only writer of Applications and records every change as an event.
 
-export { APPLICATION_STATUSES, type ApplicationStatus, type FrozenEvaluation, TRANSITIONS } from "./lib/types";
-
-/** Application events are recorded against this subject type; read them with `listEvents`. */
-export const APPLICATION_SUBJECT = "application";
+export {
+	clearPreparationFailure,
+	getPackage,
+	jobSnapshotCaptured,
+	type Package,
+	preparationResumed,
+	preparationSuspended,
+	recordPreparationFailure,
+	resumeWritten,
+	saveResume,
+	saveStrategy,
+	startPackage,
+	strategyWritten,
+} from "./lib/package";
+export {
+	APPLICATION_STATUSES,
+	APPLICATION_SUBJECT,
+	type ApplicationStatus,
+	type FrozenEvaluation,
+	type PreparationFailure,
+	TRANSITIONS,
+} from "./lib/types";
 
 export const applicationCreated = defineEvent({
 	code: "application_created",

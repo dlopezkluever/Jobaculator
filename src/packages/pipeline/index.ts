@@ -1,17 +1,24 @@
 import { z } from "zod";
-import type { LlmClient } from "../ai/index";
+import { aiSetupChangedAt, BudgetExceeded, type LlmClient, LlmError } from "../ai/index";
 import {
 	claimPreparations,
+	clearPreparationFailure,
 	createApplication,
 	dispatchedPreparations,
 	expireClosedApplications,
+	getApplication,
 	getApplicationForOpportunity,
+	getPackage,
 	lockOpportunityDecision,
+	recordPreparationFailure,
 	reviveExpired,
+	saveResume,
+	saveStrategy,
+	startPackage,
 	undecidedOpportunities,
 	usersAwaitingPreparation,
 } from "../applications/index";
-import { experienceYears, missingContactIdentity } from "../candidate/index";
+import { buildCandidateContext, experienceYears, missingContactIdentity } from "../candidate/index";
 import { SEED_BOARDS } from "../config/index";
 import type { Db, Tx } from "../db/index";
 import type { UserId } from "../db/ownership";
@@ -22,9 +29,12 @@ import {
 	getOpportunity,
 	type Ingested,
 	ingest,
+	PostingUnavailable,
+	readPostingSnapshot,
 	sourcePostingSchema,
 	watchBoards,
 } from "../discovery/index";
+import { DEFAULT_TEMPLATE, planStrategy, renderResume, writeResume } from "../generation/index";
 import { heldUsers, liftHold, raiseHold } from "../holds/index";
 import { getHunt, type Hunt, hasActiveHunt, listHunts, usersWithActiveHunts } from "../hunts/index";
 import { defineQueue, type Jobs } from "../jobs/index";
@@ -49,7 +59,7 @@ export const evaluateQueue = defineQueue("evaluate", { matchId: z.uuid() });
  * were asked to evaluate, which decides on the Matches settled by then.
  */
 export const decideQueue = defineQueue("decide", { opportunityId: z.uuid(), fallback: z.boolean() });
-/** Prepare one Application's Package; sent only by the dispatcher. Its consumer arrives with generation (#42). */
+/** Prepare one Application's Package; sent by the dispatcher, the sweeper and its own retries. */
 export const prepareQueue = defineQueue("prepare", { applicationId: z.uuid() });
 export const PIPELINE_QUEUES = [discoverQueue, ingestQueue, evaluateQueue, decideQueue, prepareQueue];
 
@@ -343,6 +353,137 @@ export function createApplicationPipeline(deps: {
 				},
 				{ localConcurrency: 2 },
 			);
+		},
+	};
+}
+
+/** The same AI failure this many times in a row suspends a Package's paid retries (§5). */
+export const PREPARE_SUSPEND_AFTER = 3;
+/** Retry delays after the 1st and 2nd identical failure; the 3rd suspends. */
+const PREPARE_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000];
+/** A spend cap or a posting fetch that failed: try again later, without counting toward suspension. */
+const PREPARE_DEFER_MS = 30 * 60 * 1000;
+
+export type PreparationPipeline = {
+	/**
+	 * `prepare(application)` (§5 step 5, §9): captures the Job Snapshot, then the Strategy, then
+	 * the tailored resume, each checkpointed so a repeated job skips what exists. An AI failure
+	 * keeps what is done and tries again later; never an Intervention. Safe to repeat.
+	 */
+	runPrepare(userId: UserId, applicationId: string): Promise<void>;
+	/** Registers the `prepare` consumer. */
+	work(): Promise<void>;
+};
+
+export function createPreparationPipeline(deps: {
+	db: Db;
+	jobs: Jobs;
+	llm: LlmClient;
+	storage: Storage;
+	adapters: Adapters;
+	log: Logger;
+}): PreparationPipeline {
+	const { db, jobs, llm, storage, adapters, log } = deps;
+
+	async function retryLater(userId: UserId, applicationId: string, delayMs: number) {
+		await jobs.send(prepareQueue, { userId, applicationId }, { startAfter: new Date(Date.now() + delayMs) });
+	}
+
+	async function runPrepare(userId: UserId, applicationId: string) {
+		const application = await getApplication(db, userId, applicationId);
+		if (application?.status !== "PREPARING" || !application.preparationDispatchedAt) return;
+		let pkg = await getPackage(db, userId, applicationId);
+		// Suspended after repeated identical AI failures: wait until the User's AI setup changes.
+		if (pkg?.suspendedAt) {
+			const changed = await aiSetupChangedAt(db, userId);
+			if (!changed || changed <= pkg.suspendedAt) return;
+		}
+
+		try {
+			if (!pkg) {
+				// Captured once, at the start of preparation, and never overwritten (§13).
+				const snapshot = await readPostingSnapshot(db, adapters, userId, application.opportunityId);
+				// No open Sighting: the sweeper expires the Application once the posting closes.
+				if (!snapshot) return;
+				pkg = await db.transaction((tx) => startPackage(tx, userId, applicationId, snapshot));
+			}
+			const hunt = await getHunt(db, userId, application.drivingHuntId);
+			if (!hunt) throw new Error("the Driving Hunt is missing");
+			const input = {
+				context: await buildCandidateContext(db, userId, {
+					drivingHuntId: hunt.id,
+					opportunityId: application.opportunityId,
+				}),
+				snapshot: pkg.jobSnapshot,
+				latitude: hunt.creativeLatitude,
+				attribution: { userId, huntId: hunt.id, applicationId, opportunityId: application.opportunityId },
+			};
+
+			let strategy = pkg.strategy;
+			if (!strategy) {
+				const planned = await planStrategy(llm, input);
+				await db.transaction((tx) => saveStrategy(tx, userId, applicationId, planned));
+				strategy = planned.strategy;
+			}
+			if (!pkg.resume) {
+				const written = await writeResume(llm, { ...input, strategy });
+				// Template choice per Candidate arrives with Classic; Modern is the default (#30).
+				const templateId = DEFAULT_TEMPLATE;
+				const rendered = renderResume(templateId, written.document);
+				await db.transaction(async (tx) => {
+					const pdf = await storage.put(tx, rendered.pdf, {
+						mediaType: "application/pdf",
+						retentionClass: "permanent",
+					});
+					await saveResume(tx, userId, applicationId, {
+						document: written.document,
+						inputHash: written.inputHash,
+						callId: written.callId,
+						templateId,
+						pdf,
+						pages: rendered.pages,
+						droppedClaims: written.droppedClaims,
+						trimmedBullets: rendered.trimmedBullets,
+					});
+				});
+				log.info({
+					event: "resume_written",
+					userId,
+					applicationId,
+					pages: rendered.pages,
+					droppedClaims: written.droppedClaims,
+					trimmedBullets: rendered.trimmedBullets,
+				});
+			}
+			await db.transaction((tx) => clearPreparationFailure(tx, userId, applicationId));
+		} catch (error) {
+			if (error instanceof PostingUnavailable || error instanceof BudgetExceeded) {
+				log.warn({ event: "preparation_deferred", userId, applicationId, reason: error.name });
+				await retryLater(userId, applicationId, PREPARE_DEFER_MS);
+				return;
+			}
+			if (!(error instanceof LlmError) || !pkg) throw error;
+			const { task, provider, model, errorClass, schemaHash } = error.fingerprint;
+			const failed = await db.transaction((tx) =>
+				recordPreparationFailure(tx, userId, applicationId, {
+					fingerprint: [task, provider, model, errorClass, schemaHash].join(":"),
+					errorClass,
+					suspendAfter: PREPARE_SUSPEND_AFTER,
+				}),
+			);
+			log.warn({ event: "preparation_failed", userId, applicationId, errorClass, count: failed.count });
+			if (failed.suspended) log.warn({ event: "preparation_suspended", userId, applicationId, errorClass });
+			const delay = PREPARE_BACKOFF_MS[failed.count - 1];
+			if (delay !== undefined) await retryLater(userId, applicationId, delay);
+		}
+	}
+
+	return {
+		runPrepare,
+		async work() {
+			await jobs.work(prepareQueue, ({ userId, applicationId }) => runPrepare(userId, applicationId), {
+				localConcurrency: 2,
+			});
 		},
 	};
 }

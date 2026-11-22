@@ -7,7 +7,7 @@ import { cn } from "../lib/utils";
 const POLL_MS = 30_000;
 const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" });
 
-const STATUS_LABELS: Record<ApplicationStatus, string> = {
+export const STATUS_LABELS: Record<ApplicationStatus, string> = {
 	PREPARING: "Preparing",
 	READY: "Ready",
 	APPLYING: "Applying",
@@ -55,9 +55,13 @@ export function ApplicationsScreen() {
 							{applications.map((a) => (
 								<tr key={a.id} className="border-b last:border-0">
 									<td className="px-4 py-2.5">
-										<a href={a.url} target="_blank" rel="noopener noreferrer" className="font-medium hover:underline">
+										<Link
+											to="/applications/$applicationId"
+											params={{ applicationId: a.id }}
+											className="font-medium hover:underline"
+										>
 											{a.title}
-										</a>
+										</Link>
 									</td>
 									<td className="px-4 py-2.5">{a.employerName}</td>
 									<td className="px-4 py-2.5">

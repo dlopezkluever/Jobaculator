@@ -11,9 +11,9 @@ import {
 	saveProviderKey,
 	updateAiSettings,
 } from "../packages/ai/index";
-import { countInFlight, listApplications } from "../packages/applications/index";
+import { countInFlight, getApplication, getPackage, listApplications } from "../packages/applications/index";
 import { isSessionLockHeld } from "../packages/db/index";
-import { listOpportunities, listWatchedBoards } from "../packages/discovery/index";
+import { getOpportunity, listOpportunities, listWatchedBoards } from "../packages/discovery/index";
 import { listEvents } from "../packages/events/index";
 import { countActiveHolds, listActiveHolds } from "../packages/holds/index";
 import { HUNT_STATUSES, huntInputSchema } from "../packages/hunts/criteria";
@@ -159,6 +159,35 @@ export const appRouter = router({
 				updatedAt: a.updatedAt.toISOString(),
 			})),
 		),
+		/** Application detail (§16): the authorizing evaluation, and the Package as far as it is prepared. */
+		get: authedProcedure.input(z.object({ id: z.uuid() })).query(async ({ ctx, input }) => {
+			const application = await getApplication(ctx.db, ctx.userId, input.id);
+			if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No such Application" });
+			const [pkg, opportunity, hunt] = await Promise.all([
+				getPackage(ctx.db, ctx.userId, application.id),
+				getOpportunity(ctx.db, ctx.userId, application.opportunityId),
+				getHunt(ctx.db, ctx.userId, application.drivingHuntId),
+			]);
+			return {
+				id: application.id,
+				status: application.status,
+				preparing: application.status === "PREPARING" && application.preparationDispatchedAt !== null,
+				fit: application.fit,
+				evaluation: application.evaluation,
+				title: opportunity?.title ?? pkg?.jobSnapshot.title ?? "",
+				employerName: opportunity?.employerName ?? pkg?.jobSnapshot.employerName ?? "",
+				drivingHunt: hunt ? { id: hunt.id, name: hunt.name } : null,
+				createdAt: application.createdAt.toISOString(),
+				package: pkg && {
+					jobSnapshot: pkg.jobSnapshot,
+					strategy: pkg.strategy,
+					resume: pkg.resume,
+					resumePages: pkg.resumePages,
+					hasResumePdf: pkg.resumePdf !== null,
+					suspended: pkg.suspendedAt !== null,
+				},
+			};
+		}),
 	}),
 	candidate: candidateRouter,
 });

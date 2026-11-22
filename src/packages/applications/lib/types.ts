@@ -1,5 +1,8 @@
 import type { Decision, DecisiveReason, DimensionJudgement } from "../../matching/index";
 
+/** Application events are recorded against this subject type; read them with `listEvents`. */
+export const APPLICATION_SUBJECT = "application";
+
 /** The Application lifecycle (§4, #9, ADR 0002): it ends at SUBMITTED; no outcome or duplicate states. */
 export const APPLICATION_STATUSES = [
 	"PREPARING",
@@ -54,3 +57,6 @@ export type FrozenEvaluation = {
 	/** Whether any qualifying Match's explicit Review rule asks for Review before submission. */
 	review: boolean;
 };
+
+/** The most recent AI failure while preparing: how many times in a row this same failure happened. */
+export type PreparationFailure = { fingerprint: string; errorClass: string; count: number; at: string };
