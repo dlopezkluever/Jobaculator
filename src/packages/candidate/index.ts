@@ -13,6 +13,7 @@ export {
 	listDocuments,
 	retryDocument,
 } from "./lib/documents";
+export { experienceYears } from "./lib/experience";
 export { extractDocument } from "./lib/extract";
 export {
 	type CandidateChannel,

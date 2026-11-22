@@ -1,14 +1,26 @@
 import { z } from "zod";
+import type { LlmClient } from "../ai/index";
+import { experienceYears } from "../candidate/index";
 import { SEED_BOARDS } from "../config/index";
-import type { Db } from "../db/index";
+import type { Db, Tx } from "../db/index";
 import type { UserId } from "../db/ownership";
-import { type Adapters, discover, dueBoards, ingest, sourcePostingSchema, watchBoards } from "../discovery/index";
-import { hasActiveHunt, usersWithActiveHunts } from "../hunts/index";
+import {
+	type Adapters,
+	discover,
+	dueBoards,
+	getOpportunity,
+	type Ingested,
+	ingest,
+	sourcePostingSchema,
+	watchBoards,
+} from "../discovery/index";
+import { getHunt, hasActiveHunt, listHunts, usersWithActiveHunts } from "../hunts/index";
 import { defineQueue, type Jobs } from "../jobs/index";
 import type { Logger } from "../log/index";
+import { evaluate, getMatch, requestEvaluations } from "../matching/index";
 import type { Storage } from "../storage/index";
 
-// Pipeline steps 1–2 (§5): `discover(userId, board)` → `ingest(posting)`.
+// Pipeline steps 1–3 (§5): `discover(userId, board)` → `ingest(posting)` → `evaluate(match)`.
 
 /** At most one poll per (User, Board) is queued or running; a poll due meanwhile is skipped, not queued (§6). */
 export const discoverQueue = defineQueue("discover", { boardId: z.uuid() }, { policy: "exclusive" });
@@ -17,7 +29,25 @@ export const ingestQueue = defineQueue("ingest", {
 	continuous: z.boolean(),
 	posting: sourcePostingSchema,
 });
-export const DISCOVERY_QUEUES = [discoverQueue, ingestQueue];
+/** One Match to evaluate; a nudge for a Match that moved on does nothing. */
+export const evaluateQueue = defineQueue("evaluate", { matchId: z.uuid() });
+export const PIPELINE_QUEUES = [discoverQueue, ingestQueue, evaluateQueue];
+
+/**
+ * Ingest's next step, in its transaction (§5): every ACTIVE Hunt evaluates a new, changed or
+ * reopened Opportunity. Another Sighting, or nothing new, leaves the Matches as they are.
+ */
+async function requestHuntEvaluations(jobs: Jobs, tx: Tx, owner: UserId, ingested: Ingested) {
+	if (ingested.outcome === "SIGHTED" || ingested.outcome === "UNCHANGED") return;
+	const active = (await listHunts(tx, owner)).filter((hunt) => hunt.status === "ACTIVE");
+	const ids = await requestEvaluations(
+		tx,
+		owner,
+		ingested.opportunityId,
+		active.map((hunt) => hunt.id),
+	);
+	for (const matchId of ids) await jobs.send(evaluateQueue, { userId: owner, matchId }, { tx });
+}
 
 export type DiscoveryPipeline = {
 	/** Enqueues a poll of every due Board of every User with an ACTIVE Hunt, watching the seed Boards first. */
@@ -83,10 +113,60 @@ export function createDiscoveryPipeline(deps: {
 			await jobs.work(
 				ingestQueue,
 				async ({ userId, boardId, continuous, posting }) => {
-					await ingest(db, storage, userId, boardId, posting, { continuous });
+					await ingest(db, storage, userId, boardId, posting, {
+						continuous,
+						onIngested: (tx, ingested) => requestHuntEvaluations(jobs, tx, userId, ingested),
+					});
 				},
 				{ localConcurrency: 4, burst: true },
 			);
+		},
+	};
+}
+
+export type MatchingPipeline = {
+	runEvaluate(userId: UserId, matchId: string): Promise<void>;
+	/** Registers the `evaluate` consumer. */
+	work(): Promise<void>;
+};
+
+export function createMatchingPipeline(deps: { db: Db; jobs: Jobs; llm: LlmClient; log: Logger }): MatchingPipeline {
+	const { db, jobs, llm, log } = deps;
+
+	async function runEvaluate(userId: UserId, matchId: string) {
+		// The revision is read before the inputs, so inputs changed meanwhile make the write a no-op.
+		const pending = await getMatch(db, userId, matchId);
+		if (pending?.status !== "PENDING") return;
+		// A paused Hunt does not evaluate; its Match waits, PENDING.
+		const hunt = await getHunt(db, userId, pending.huntId);
+		if (hunt?.status !== "ACTIVE") return;
+		const opportunity = await getOpportunity(db, userId, pending.opportunityId);
+		if (opportunity?.status !== "OPEN") return;
+		const evaluated = await evaluate({ db, llm }, userId, pending, {
+			criteria: hunt.criteria,
+			opportunity,
+			experienceYears: await experienceYears(db, userId),
+		});
+		if (evaluated) {
+			log.info({
+				event: "match_evaluated",
+				userId,
+				matchId,
+				decision: evaluated.decision,
+				reason: evaluated.reason,
+				fit: evaluated.fit,
+			});
+		}
+	}
+
+	return {
+		runEvaluate,
+		async work() {
+			// A Board's first import asks every Hunt to judge every posting at once, so evaluate drains its backlog.
+			await jobs.work(evaluateQueue, ({ userId, matchId }) => runEvaluate(userId, matchId), {
+				localConcurrency: 4,
+				burst: true,
+			});
 		},
 	};
 }

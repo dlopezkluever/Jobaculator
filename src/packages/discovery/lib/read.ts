@@ -39,6 +39,38 @@ export async function listOpportunities(exec: Executor, owner: UserId): Promise<
 		.orderBy(desc(opportunity.firstSeenAt), asc(opportunity.title), asc(opportunity.id));
 }
 
+/** One Opportunity's normalized content, as matching reads it (§6, §7). */
+export type OpportunityContent = {
+	id: string;
+	status: "OPEN" | "CLOSED";
+	title: string;
+	employerName: string;
+	locationText: string | null;
+	workplaceType: "ONSITE" | "HYBRID" | "REMOTE" | null;
+	employmentType: string | null;
+	salary: { min: number | null; max: number | null; currency: string } | null;
+	descriptionMarkdown: string | null;
+};
+
+/** One of the owner's Opportunities, or null when it does not exist or belongs to another User. */
+export async function getOpportunity(exec: Executor, owner: UserId, id: string): Promise<OpportunityContent | null> {
+	const [found] = await exec
+		.select({
+			id: opportunity.id,
+			status: opportunity.status,
+			title: opportunity.title,
+			employerName: opportunity.employerName,
+			locationText: opportunity.locationText,
+			workplaceType: opportunity.workplaceType,
+			employmentType: opportunity.employmentType,
+			salary: opportunity.salary,
+			descriptionMarkdown: opportunity.descriptionMarkdown,
+		})
+		.from(opportunity)
+		.where(and(eq(opportunity.id, id), eq(opportunity.userId, owner)));
+	return found ?? null;
+}
+
 export type BoardHealth = {
 	id: string;
 	source: string;

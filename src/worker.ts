@@ -5,7 +5,7 @@ import { createDatabase, trySessionLock } from "./packages/db/index";
 import { createGreenhouseAdapter, createSourceHttp } from "./packages/discovery/index";
 import { createJobs, WORKER_LOCK_KEY } from "./packages/jobs/index";
 import { createLogger } from "./packages/log/index";
-import { createDiscoveryPipeline, DISCOVERY_QUEUES } from "./packages/pipeline/index";
+import { createDiscoveryPipeline, createMatchingPipeline, PIPELINE_QUEUES } from "./packages/pipeline/index";
 import { createSecrets } from "./packages/secrets/index";
 import { createStorage } from "./packages/storage/index";
 
@@ -28,15 +28,15 @@ if (!lock) {
 	process.exit(1);
 }
 
-// Extraction (2), discover (2) and ingest (4) consumers share this pool with the ticks.
-const database = createDatabase(config.databaseUrl, { max: 10 });
+// Extraction (2), discover (2), ingest (4) and evaluate (4) consumers share this pool with the ticks.
+const database = createDatabase(config.databaseUrl, { max: 14 });
 const secrets = createSecrets([{ version: 1, key: config.masterKey }]);
 const storage = createStorage(config.dataDir);
 const llm = createLlmClient({ db: database.db, secrets, log });
 
 const jobs = createJobs({
 	databaseUrl: config.databaseUrl,
-	queues: [EXTRACT_DOCUMENT, ...DISCOVERY_QUEUES],
+	queues: [EXTRACT_DOCUMENT, ...PIPELINE_QUEUES],
 	onError: (error) => log.error({ err: error, event: "jobs_error" }),
 });
 await jobs.start();
@@ -56,6 +56,7 @@ const discovery = createDiscoveryPipeline({
 	log,
 });
 await discovery.work();
+await createMatchingPipeline({ db: database.db, jobs, llm, log }).work();
 async function discoveryTick() {
 	try {
 		const sent = await discovery.tick();
