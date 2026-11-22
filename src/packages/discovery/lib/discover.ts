@@ -216,11 +216,13 @@ async function closeOpportunitiesWithoutOpenSightings(tx: Tx, owner: UserId, ids
 }
 
 export type IngestOutcome = "DISCOVERED" | "SIGHTED" | "CHANGED" | "REOPENED" | "UNCHANGED";
+export type Ingested = { opportunityId: string; outcome: IngestOutcome };
 
 /**
  * Normalizes one posting from a watched Board and upserts its Opportunity and Sighting (§6):
  * exact-key dedup per User, raw payload to a blob, `posting_changed` when its normalized text
- * changed. Safe to repeat. Null when the owner has no such Board.
+ * changed. Safe to repeat. Null when the owner has no such Board. `onIngested` runs in the
+ * same transaction, so the caller's next step (such as enqueueing evaluations) commits with it.
  */
 export async function ingest(
 	exec: Executor,
@@ -228,10 +230,16 @@ export async function ingest(
 	owner: UserId,
 	boardId: string,
 	posting: SourcePosting,
-	options: { continuous: boolean; now?: Date },
-): Promise<{ opportunityId: string; outcome: IngestOutcome } | null> {
+	options: { continuous: boolean; now?: Date; onIngested?: (tx: Tx, ingested: Ingested) => Promise<void> },
+): Promise<Ingested | null> {
 	const now = options.now ?? new Date();
 	return exec.transaction(async (tx) => {
+		const ingested = await upsert(tx);
+		if (ingested) await options.onIngested?.(tx, ingested);
+		return ingested;
+	});
+
+	async function upsert(tx: Tx): Promise<Ingested | null> {
 		// One User's ingests run one at a time, so two Sightings of one requisition never race to two Opportunities.
 		await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`discovery:${owner}`}, 0))`);
 		const [board] = await tx
@@ -387,5 +395,5 @@ export async function ingest(
 		if (!seen) throw new Error("the Sighting was not created");
 		await appendEvent(tx, owner, postingDiscovered, created.id, { sightingId: seen.id });
 		return { opportunityId: created.id, outcome: "DISCOVERED" };
-	});
+	}
 }

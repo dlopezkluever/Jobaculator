@@ -9,6 +9,7 @@ export {
 	type DiscoverOutcome,
 	discover,
 	dueBoards,
+	type Ingested,
 	type IngestOutcome,
 	type IngestRequest,
 	ingest,
@@ -26,7 +27,14 @@ export {
 export { createGreenhouseAdapter } from "./lib/greenhouse";
 export { createSourceHttp, type FetchLike, type SourceHttp, type SourceHttpOptions, USER_AGENT } from "./lib/http";
 export { canonicalUrl, sanitizedMarkdown } from "./lib/normalize";
-export { type BoardHealth, listOpportunities, listWatchedBoards, type OpportunitySummary } from "./lib/read";
+export {
+	type BoardHealth,
+	getOpportunity,
+	listOpportunities,
+	listWatchedBoards,
+	type OpportunityContent,
+	type OpportunitySummary,
+} from "./lib/read";
 export {
 	type BoardListing,
 	type BoardRef,

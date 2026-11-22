@@ -18,7 +18,7 @@ import { createHunt, setHuntStatus } from "../../hunts/index";
 import { createJobs, type Jobs } from "../../jobs/index";
 import { createLogger } from "../../log/index";
 import { createStorage } from "../../storage/index";
-import { createDiscoveryPipeline, DISCOVERY_QUEUES, type DiscoveryPipeline } from "../index";
+import { createDiscoveryPipeline, type DiscoveryPipeline, PIPELINE_QUEUES } from "../index";
 
 // The seed Boards' recorded listings, served by URL; anything else is refused.
 const fixtures = new Map(
@@ -41,7 +41,7 @@ let jobs: Jobs;
 let pipeline: DiscoveryPipeline;
 beforeAll(async () => {
 	database = await createTestDatabase();
-	jobs = createJobs({ databaseUrl: database.url, queues: DISCOVERY_QUEUES });
+	jobs = createJobs({ databaseUrl: database.url, queues: PIPELINE_QUEUES });
 	await jobs.start();
 	pipeline = createDiscoveryPipeline({
 		db: database.db,
