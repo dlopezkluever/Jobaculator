@@ -35,14 +35,21 @@ export {
 	type OpportunityContent,
 	type OpportunitySummary,
 } from "./lib/read";
-export { type PostingSnapshot, PostingUnavailable, readPostingSnapshot } from "./lib/snapshot";
 export {
+	type PostingSnapshot,
+	PostingUnavailable,
+	readApplicationQuestions,
+	readPostingSnapshot,
+} from "./lib/snapshot";
+export {
+	type ApplicationQuestion,
 	type BoardListing,
 	type BoardRef,
 	type Gone,
 	type ListingFailure,
 	type ListingFailureKind,
 	type PostingRef,
+	type QuestionType,
 	SOURCES,
 	type SourceAdapter,
 	type SourceKind,

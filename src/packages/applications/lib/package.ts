@@ -3,7 +3,14 @@ import { z } from "zod";
 import type { Executor, Tx } from "../../db/index";
 import type { UserId } from "../../db/ownership";
 import { appendEvent, defineEvent } from "../../events/index";
-import type { JobSnapshot, ResumeDocument, Strategy, TemplateId } from "../../generation/index";
+import type {
+	ApplicationAnswer,
+	Escalation,
+	JobSnapshot,
+	ResumeDocument,
+	Strategy,
+	TemplateId,
+} from "../../generation/index";
 import type { BlobHash } from "../../storage/index";
 import { applicationPackage } from "./schema";
 import { APPLICATION_SUBJECT, type PreparationFailure } from "./types";
@@ -31,6 +38,26 @@ export const resumeWritten = defineEvent({
 		trimmedBullets: z.int(),
 	}),
 });
+export const answersWritten = defineEvent({
+	code: "answers_written",
+	subject: APPLICATION_SUBJECT,
+	payload: z.object({
+		callId: z.uuid().nullable(),
+		questions: z.int(),
+		/** Answered by code, from an Answer Policy, an Authoritative Fact or a decline. */
+		deterministic: z.int(),
+		blank: z.int(),
+		/** Model answers dropped for an invalid citation or a choice the form does not offer. */
+		droppedAnswers: z.int(),
+		/** The questions that need the Candidate (narrow escalation, #16). */
+		escalations: z.array(
+			z.object({
+				questionId: z.string(),
+				escalation: z.enum(["AUTHORITATIVE_FACT_REQUIRED", "ASSESSMENT_REQUIRED"]),
+			}),
+		),
+	}),
+});
 /** Paid retries stopped after the same AI failure repeated; resumes when the User's AI setup changes. */
 export const preparationSuspended = defineEvent({
 	code: "preparation_suspended",
@@ -53,6 +80,7 @@ export type Package = {
 	resumeTemplate: TemplateId | null;
 	resumePdf: BlobHash | null;
 	resumePages: number | null;
+	answers: ApplicationAnswer[] | null;
 	failure: PreparationFailure | null;
 	suspendedAt: Date | null;
 	updatedAt: Date;
@@ -68,6 +96,7 @@ const columns = {
 	resumeTemplate: applicationPackage.resumeTemplate,
 	resumePdf: applicationPackage.resumePdf,
 	resumePages: applicationPackage.resumePages,
+	answers: applicationPackage.answers,
 	failure: applicationPackage.failure,
 	suspendedAt: applicationPackage.suspendedAt,
 	updatedAt: applicationPackage.updatedAt,
@@ -172,6 +201,38 @@ export async function saveResume(
 		pages: written.pages,
 		droppedClaims: written.droppedClaims,
 		trimmedBullets: written.trimmedBullets,
+	});
+	return true;
+}
+
+/** Stores the Application Answers unless answers are stored already; they are not regenerated (#16). */
+export async function saveAnswers(
+	tx: Tx,
+	owner: UserId,
+	applicationId: string,
+	written: { answers: ApplicationAnswer[]; inputHash: string; callId: string | null; droppedAnswers: number },
+): Promise<boolean> {
+	const [saved] = await tx
+		.update(applicationPackage)
+		.set({
+			answers: written.answers,
+			answersInputHash: written.inputHash,
+			answersCallId: written.callId,
+			updatedAt: new Date(),
+		})
+		.where(and(owned(owner, applicationId), isNull(applicationPackage.answers)))
+		.returning({ id: applicationPackage.applicationId });
+	if (!saved) return false;
+	const { answers } = written;
+	await appendEvent(tx, owner, answersWritten, applicationId, {
+		callId: written.callId,
+		questions: answers.length,
+		deterministic: answers.filter((a) => a.via !== null && a.via !== "MODEL").length,
+		blank: answers.filter((a) => a.via === null).length,
+		droppedAnswers: written.droppedAnswers,
+		escalations: answers.flatMap((a) =>
+			a.escalation ? [{ questionId: a.question.id, escalation: a.escalation satisfies Escalation }] : [],
+		),
 	});
 	return true;
 }

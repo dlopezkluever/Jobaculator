@@ -14,6 +14,11 @@ export function boardFixture(token: string): BoardFixture {
 	return JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", `greenhouse-${token}.json`), "utf8"));
 }
 
+/** A recorded posting form (`tests/fixtures/greenhouse-questions-<token>.json`, from `questions=true`). */
+export function questionsFixture(token: string): { url: string; body: unknown } {
+	return JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", `greenhouse-questions-${token}.json`), "utf8"));
+}
+
 export type Route = { status: number; body?: unknown; headers?: Record<string, string> };
 
 /**

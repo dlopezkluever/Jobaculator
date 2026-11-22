@@ -4,7 +4,7 @@ import type { UserId } from "../../db/ownership";
 import type { Adapters } from "./discover";
 import { sanitizedMarkdown } from "./normalize";
 import { opportunity, sighting, watchedBoard } from "./schema";
-import type { ListingFailure } from "./types";
+import type { ApplicationQuestion, ListingFailure, SourceKind } from "./types";
 
 /**
  * The posting as it reads now, for an Application's Job Snapshot (§13). Read-only: the
@@ -107,4 +107,24 @@ export async function readPostingSnapshot(
 		enriched,
 		capturedAt: now.toISOString(),
 	};
+}
+
+/**
+ * The application questions of the posting a Job Snapshot read (§9), from its Source's
+ * public schema. Null when the Source says the posting is gone; throws `PostingUnavailable`
+ * when the fetch fails for a reason that may pass.
+ */
+export async function readApplicationQuestions(
+	adapters: Adapters,
+	snapshot: Pick<PostingSnapshot, "source" | "boardToken" | "nativeId">,
+): Promise<ApplicationQuestion[] | null> {
+	const adapter = adapters[snapshot.source as SourceKind];
+	if (!adapter) throw new Error(`no adapter for Source ${snapshot.source}`);
+	const found = await adapter.fetchQuestions({
+		board: { source: adapter.source, token: snapshot.boardToken },
+		nativeId: snapshot.nativeId,
+	});
+	if ("gone" in found) return null;
+	if ("failure" in found) throw new PostingUnavailable(found);
+	return found;
 }

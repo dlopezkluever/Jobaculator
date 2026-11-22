@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { Download } from "lucide-react";
 import { Tabs } from "radix-ui";
-import type { ResumeDocument, Strategy } from "../../packages/generation/index";
+import type { ApplicationAnswer, QuestionClass, ResumeDocument, Strategy } from "../../packages/generation/index";
 import { TIER_LABELS } from "../../packages/hunts/criteria";
 import type { DecisiveReason, DimensionJudgement } from "../../packages/matching/index";
 import { Button } from "../components/ui/button";
@@ -29,7 +29,7 @@ const DIMENSION_LABELS: Record<DimensionJudgement["dimension"], string> = {
 	experience: "Experience",
 };
 
-/** Application detail (§16): Why, Job Snapshot and Resume; Cover letter, Answers and Execution follow. */
+/** Application detail (§16): Why, Job Snapshot, Resume and Answers; Cover letter and Execution follow. */
 export function ApplicationScreen() {
 	const { applicationId } = useParams({ from: "/app/applications/$applicationId" });
 	const query = useQuery({ ...trpc.applications.get.queryOptions({ id: applicationId }), refetchInterval: POLL_MS });
@@ -76,6 +76,7 @@ export function ApplicationScreen() {
 					<Tab value="why" label="Why" />
 					<Tab value="snapshot" label="Job Snapshot" />
 					<Tab value="resume" label="Resume" />
+					<Tab value="answers" label="Answers" />
 				</Tabs.List>
 				<Tabs.Content value="why" className="space-y-5">
 					<MatchCard evaluation={a.evaluation} />
@@ -90,6 +91,9 @@ export function ApplicationScreen() {
 					) : (
 						<Pending what="The tailored resume" />
 					)}
+				</Tabs.Content>
+				<Tabs.Content value="answers">
+					{pkg?.answers ? <AnswersCard answers={pkg.answers} /> : <Pending what="The answers" />}
 				</Tabs.Content>
 			</Tabs.Root>
 		</div>
@@ -370,5 +374,74 @@ function Bullets({ items }: { items: { text: string }[] }) {
 				<li key={b.text}>{b.text}</li>
 			))}
 		</ul>
+	);
+}
+
+const CLASS_LABELS: Record<QuestionClass, string> = {
+	AUTHORITATIVE: "Authoritative",
+	FACTUAL: "Factual",
+	INFERABLE: "Inferred",
+	PERSUASIVE: "Persuasive",
+	PREFERENCE: "Preference",
+	OPTIONAL_DISCLOSURE: "Optional disclosure",
+	ASSESSMENT: "Assessment",
+	UNKNOWN: "Unknown",
+};
+const VIA_COPY: Record<NonNullable<ApplicationAnswer["via"]>, string> = {
+	POLICY: "From your standing answer",
+	FACT: "From your profile",
+	DECLINE: "Declined",
+	MODEL: "Written for this posting",
+};
+
+/** The Application Answers (§9): each with its class and the facts, policies or Hunt it rests on. */
+function AnswersCard({ answers }: { answers: (ApplicationAnswer & { sourceLabels: string[] })[] }) {
+	const needs = answers.filter((a) => a.escalation).length;
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>Answers</CardTitle>
+				<CardDescription>
+					The answers to this posting's application questions.{" "}
+					{needs > 0
+						? `${needs} required ${needs === 1 ? "question needs" : "questions need"} you.`
+						: "Optional questions with nothing to go on stay blank."}
+				</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<ol className="divide-y text-sm">
+					{answers.map((a) => (
+						<li key={a.question.id} className="space-y-1.5 py-3">
+							<div className="flex flex-wrap items-start justify-between gap-2">
+								<p className="font-medium">
+									{a.question.label}
+									{a.question.required && <span className="text-muted-foreground"> (required)</span>}
+								</p>
+								<span className="rounded-md border px-2 py-0.5 text-xs text-muted-foreground">
+									{CLASS_LABELS[a.class]}
+								</span>
+							</div>
+							{a.text !== null || a.choices.length > 0 ? (
+								<p className="whitespace-pre-wrap">{a.text ?? a.choices.join(", ")}</p>
+							) : a.escalation ? (
+								<p role="status" className="rounded-md bg-warning px-3 py-2 text-warning-foreground">
+									{a.escalation === "ASSESSMENT_REQUIRED"
+										? "This is an assessment: it needs you."
+										: "Only you can answer this."}
+								</p>
+							) : (
+								<p className="text-muted-foreground">Left blank</p>
+							)}
+							{a.via && (
+								<p className="text-xs text-muted-foreground">
+									{VIA_COPY[a.via]}
+									{a.sourceLabels.length > 0 && ` · ${a.sourceLabels.join(" · ")}`}
+								</p>
+							)}
+						</li>
+					))}
+				</ol>
+			</CardContent>
+		</Card>
 	);
 }

@@ -21,6 +21,7 @@ import {
 // module is the only writer of Applications and records every change as an event.
 
 export {
+	answersWritten,
 	clearPreparationFailure,
 	getPackage,
 	jobSnapshotCaptured,
@@ -29,6 +30,7 @@ export {
 	preparationSuspended,
 	recordPreparationFailure,
 	resumeWritten,
+	saveAnswers,
 	saveResume,
 	saveStrategy,
 	startPackage,
