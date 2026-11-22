@@ -3,8 +3,10 @@ import { z } from "zod";
 import type { LlmClient } from "../../ai/index";
 import type { Db, Executor, Tx } from "../../db/index";
 import type { UserId } from "../../db/ownership";
+import { opportunity } from "../../discovery/tables";
 import { appendEvent, defineEvent } from "../../events/index";
 import { type HuntCriteria, TIERS } from "../../hunts/criteria";
+import { hunt } from "../../hunts/tables";
 import { extractAttributes, mergeAttributes, type OpportunityInput, statedAttributes } from "./extract";
 import { judge } from "./judge";
 import { match } from "./schema";
@@ -151,12 +153,14 @@ export type EvaluationInputs = {
  * survivors, the cached LLM extraction; then Qualification → Fit → Submission Policy. Writes
  * the Match and its `match_evaluated` event in one transaction, only if the Match is still
  * PENDING at `pending.revision`; returns null when it moved on. Read `pending` before the inputs.
+ * `onEvaluated` runs in that transaction, so the caller's next step commits with the Match.
  */
 export async function evaluate(
 	deps: { db: Db; llm: LlmClient },
 	owner: UserId,
 	pending: Pick<Match, "id" | "revision">,
 	inputs: EvaluationInputs,
+	options: { onEvaluated?: (tx: Tx, evaluated: Match) => Promise<void> } = {},
 ): Promise<Match | null> {
 	const { criteria, opportunity, experienceYears } = inputs;
 	const base = { criteria, title: opportunity.title, locationText: opportunity.locationText, experienceYears };
@@ -205,6 +209,23 @@ export async function evaluate(
 				excludes,
 			})),
 		});
-		return toMatch(row);
+		const evaluated = toMatch(row);
+		await options.onEvaluated?.(tx, evaluated);
+		return evaluated;
 	});
+}
+
+/**
+ * Every User's PENDING Matches that could be evaluated now: their Hunt is ACTIVE and their
+ * Opportunity OPEN. The sweeper nudges those without a live `evaluate` job (§5), such as a
+ * Match whose evaluation failed or whose Hunt was paused when it was asked.
+ */
+export async function evaluableMatches(exec: Executor): Promise<{ userId: UserId; matchId: string }[]> {
+	const rows = await exec
+		.select({ userId: match.userId, matchId: match.id })
+		.from(match)
+		.innerJoin(hunt, and(eq(hunt.id, match.huntId), eq(hunt.userId, match.userId)))
+		.innerJoin(opportunity, and(eq(opportunity.id, match.opportunityId), eq(opportunity.userId, match.userId)))
+		.where(and(eq(match.status, "PENDING"), eq(hunt.status, "ACTIVE"), eq(opportunity.status, "OPEN")));
+	return rows.map((row) => ({ userId: row.userId as UserId, matchId: row.matchId }));
 }

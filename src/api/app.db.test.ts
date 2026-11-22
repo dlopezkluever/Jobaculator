@@ -251,10 +251,10 @@ describe("system status", () => {
 	it("reports Dry Run and whether the worker holds its lock", async () => {
 		const user = client();
 		await user.signIn();
-		expect((await user.query("system.status")).data).toEqual({ mode: "DRY_RUN", workerRunning: false });
+		expect((await user.query("system.status")).data).toEqual({ mode: "DRY_RUN", workerRunning: false, holds: [] });
 		const lock = await trySessionLock(database.url, WORKER_LOCK_KEY, () => {});
 		try {
-			expect((await user.query("system.status")).data).toEqual({ mode: "DRY_RUN", workerRunning: true });
+			expect((await user.query("system.status")).data).toEqual({ mode: "DRY_RUN", workerRunning: true, holds: [] });
 		} finally {
 			await lock?.release();
 		}

@@ -5,6 +5,7 @@
 
 export {
 	type EvaluationInputs,
+	evaluableMatches,
 	evaluate,
 	getMatch,
 	listMatches,

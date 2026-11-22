@@ -11,9 +11,11 @@ import {
 	saveProviderKey,
 	updateAiSettings,
 } from "../packages/ai/index";
+import { countInFlight, listApplications } from "../packages/applications/index";
 import { isSessionLockHeld } from "../packages/db/index";
 import { listOpportunities, listWatchedBoards } from "../packages/discovery/index";
 import { listEvents } from "../packages/events/index";
+import { countActiveHolds, listActiveHolds } from "../packages/holds/index";
 import { HUNT_STATUSES, huntInputSchema } from "../packages/hunts/criteria";
 import {
 	createHunt,
@@ -57,6 +59,12 @@ export const appRouter = router({
 			// passed restore drill and journal activation, so nothing can switch it yet.
 			mode: "DRY_RUN" as SubmissionMode,
 			workerRunning: await isSessionLockHeld(ctx.db, WORKER_LOCK_KEY),
+			/** One banner per active Hold (§16). */
+			holds: (await listActiveHolds(ctx.db, ctx.userId)).map((hold) => ({
+				scope: hold.scope,
+				reason: hold.reason,
+				raisedAt: hold.raisedAt.toISOString(),
+			})),
 		})),
 	}),
 	/** Settings → AI keys and spend (§12). Keys are write-only: reads return only their last 4 characters. */
@@ -85,15 +93,15 @@ export const appRouter = router({
 	}),
 	dashboard: router({
 		/**
-		 * The Dashboard's counts (§16). No Applications, Interventions or Holds exist yet,
-		 * so every count is zero; the tickets that add those tables count them here, owner-scoped.
+		 * The Dashboard's counts (§16), owner-scoped. Nothing is submitted, Dry Run or waiting on
+		 * the Candidate yet; the tickets that add Browser Runs and Interventions count those here.
 		 */
-		summary: authedProcedure.query(() => ({
+		summary: authedProcedure.query(async ({ ctx }) => ({
 			submitted: { today: 0, week: 0, allTime: 0 },
-			inFlight: { queued: 0, preparing: 0, inBrowser: 0 },
+			inFlight: await countInFlight(ctx.db, ctx.userId),
 			dryRuns: 0,
 			attention: { needsYou: 0, review: 0, uncertain: 0 },
-			holds: 0,
+			holds: await countActiveHolds(ctx.db, ctx.userId),
 		})),
 	}),
 	hunts: router({
@@ -140,6 +148,17 @@ export const appRouter = router({
 				})),
 			};
 		}),
+	}),
+	/** The Applications table (§16), newest first. */
+	applications: router({
+		list: authedProcedure.query(async ({ ctx }) =>
+			(await listApplications(ctx.db, ctx.userId)).map((a) => ({
+				...a,
+				postedAt: a.postedAt?.toISOString() ?? null,
+				createdAt: a.createdAt.toISOString(),
+				updatedAt: a.updatedAt.toISOString(),
+			})),
+		),
 	}),
 	candidate: candidateRouter,
 });
