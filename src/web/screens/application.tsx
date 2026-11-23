@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { Download } from "lucide-react";
 import { Tabs } from "radix-ui";
-import type { FieldRecord } from "../../packages/applications/index";
+import type { FieldRecord, InterventionKind } from "../../packages/applications/index";
 import type { ApplicationAnswer, QuestionClass, ResumeDocument, Strategy } from "../../packages/generation/index";
 import { TIER_LABELS } from "../../packages/hunts/criteria";
 import type { DecisiveReason, DimensionJudgement } from "../../packages/matching/index";
@@ -29,6 +29,57 @@ const DIMENSION_LABELS: Record<DimensionJudgement["dimension"], string> = {
 	pay: "Pay",
 	experience: "Experience",
 };
+
+const interventionCopy = (kind: InterventionKind, budget: number): string => {
+	switch (kind) {
+		case "SUBMIT_UNKNOWN":
+			return "Submit was clicked but no confirmation was seen. It is never retried by itself.";
+		case "ATTEMPTS_EXHAUSTED":
+			return `The last ${budget} automatic Browser Runs failed, so it stopped trying. Each run's steps are in the Execution tab.`;
+		case "CAPTCHA":
+			return "The employer's site showed a human-verification challenge.";
+		case "AUTH_REQUIRED":
+			return "The employer's site asks you to sign in or create an account.";
+		case "AUTHORITATIVE_FACT_REQUIRED":
+			return "A required question needs an answer only you can give.";
+		case "ASSESSMENT_REQUIRED":
+			return "The application asks for an assessment to be completed.";
+		case "UNSUPPORTED_FLOW":
+			return "The application page is not one the browser can fill in.";
+		case "DUPLICATE_APPLICATION":
+			return "The employer's site says you have already applied. It is never marked Submitted by itself.";
+	}
+};
+
+/** A failed run's automatic retry (§5), or the open Interventions that stopped the Application. */
+function RecoveryNotice(props: {
+	status: string;
+	attempts: { used: number; budget: number };
+	retryAfter: string | null;
+	interventions: { id: string; kind: InterventionKind; open: boolean }[];
+	lastFailure: { category: string } | null;
+}) {
+	const open = props.interventions.filter((i) => i.open);
+	if (open.length > 0) {
+		return (
+			<div role="status" className="space-y-1 rounded-md bg-warning px-3 py-2 text-sm text-warning-foreground">
+				{open.map((i) => (
+					<p key={i.id}>
+						<span className="font-medium">Needs you: </span>
+						{interventionCopy(i.kind, props.attempts.budget)}
+					</p>
+				))}
+			</div>
+		);
+	}
+	if (props.status !== "READY" || !props.retryAfter || !props.lastFailure) return null;
+	return (
+		<p role="status" className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+			The last Browser Run failed ({props.lastFailure.category}). It runs again by itself after{" "}
+			{time.format(new Date(props.retryAfter))}: attempt {props.attempts.used + 1} of {props.attempts.budget}.
+		</p>
+	);
+}
 
 /** Application detail (§16): Why, Job Snapshot, Resume, Answers and Execution; Cover letter follows. */
 export function ApplicationScreen() {
@@ -64,6 +115,13 @@ export function ApplicationScreen() {
 						</>
 					)}
 				</p>
+				<RecoveryNotice
+					status={a.status}
+					attempts={a.attempts}
+					retryAfter={a.retryAfter}
+					interventions={a.interventions}
+					lastFailure={a.runs[0]?.failure ?? null}
+				/>
 				{pkg?.suspended && (
 					<p role="status" className="rounded-md bg-warning px-3 py-2 text-sm text-warning-foreground">
 						Preparation paused after the AI provider failed the same way several times. Your progress is kept; it picks
@@ -513,7 +571,7 @@ function stepCopy(e: Run["events"][number]): string | null {
 		case "no_confirmation":
 			return "No confirmation after submitting: uncertain";
 		case "failed":
-			return `Failed: ${e.category}`;
+			return `Failed: ${e.category}${e.by === "model" ? " (as the AI model read the page)" : ""}`;
 		default:
 			return null;
 	}

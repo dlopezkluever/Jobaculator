@@ -22,6 +22,12 @@ import { createStorage } from "./packages/storage/index";
 // The `worker` process: hosts every pg-boss consumer and schedule (§3).
 // Exactly one runs at a time, enforced by a Postgres advisory lock (§17).
 const SHUTDOWN_GRACE_MS = 60_000;
+/**
+ * How long a Browser Run past the submit boundary may still record its confirmation when the
+ * worker stops (§5); then it is an Uncertain Submission. Longer than the confirmation wait, and
+ * inside systemd's 90 s stop timeout with the rest of the shutdown.
+ */
+const SUBMITTING_GRACE_MS = 50_000;
 const PAYLOAD_PURGE_MS = 60 * 60 * 1000;
 /** How often due Boards are looked for; each Board itself is polled every ~2 h (§6). */
 const DISCOVERY_TICK_MS = 60 * 1000;
@@ -140,7 +146,8 @@ async function shutdown(signal: string) {
 	clearInterval(discoveryTimer);
 	clearInterval(dispatchTimer);
 	clearInterval(sweepTimer);
-	await jobs.stop({ timeoutMs: SHUTDOWN_GRACE_MS });
+	// Runs before the boundary are aborted at once (no attempt used); submitting ones get the grace.
+	await Promise.all([browser.stop({ graceMs: SUBMITTING_GRACE_MS }), jobs.stop({ timeoutMs: SHUTDOWN_GRACE_MS })]);
 	await runner.close();
 	await database.close();
 	await lock?.release();

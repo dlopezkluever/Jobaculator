@@ -1,9 +1,20 @@
 import { tmpdir } from "node:os";
-import { type Browser, type BrowserContext, chromium, errors, type Page } from "playwright";
+import { type Browser, type BrowserContext, chromium, type Page } from "playwright";
+import { classifyFailure } from "./classify";
 import { capture } from "./evidence";
 import { greenhouseDriver } from "./greenhouse";
 import { blockedSubmissions, blockFormSubmission } from "./guard";
-import type { Driver, PackagePort, RunEventSink, RunMode, RunOutcome, SubmitGate } from "./types";
+import type {
+	Driver,
+	FailureCategory,
+	FieldRecord,
+	PackagePort,
+	RunAi,
+	RunEventSink,
+	RunMode,
+	RunOutcome,
+	SubmitGate,
+} from "./types";
 
 export type RunRequest = {
 	/** The posting's apply URL, from the Job Snapshot. */
@@ -15,6 +26,7 @@ export type RunRequest = {
 	gate: SubmitGate;
 	/** Aborts the run: the wall-clock limit, a lost heartbeat, or shutdown. */
 	signal: AbortSignal;
+	ai: RunAi;
 };
 
 export type BrowserRunner = {
@@ -22,6 +34,9 @@ export type BrowserRunner = {
 	run(request: RunRequest): Promise<RunOutcome>;
 	close(): Promise<void>;
 };
+
+const reasonOf = (signal: AbortSignal) =>
+	signal.reason instanceof Error ? signal.reason.message : String(signal.reason);
 
 /** Selection order (§10): ATS adapters by fingerprint; the general agent comes later. */
 const DRIVERS: readonly Driver[] = [greenhouseDriver];
@@ -77,6 +92,29 @@ export function createBrowserRunner(
 			let context: BrowserContext | null = null;
 			let page: Page | null = null;
 			let instance: Browser | null = null;
+			let status: number | null = null;
+			/** A failure before the boundary, classified (§10) while its page is still open. */
+			const fail = async (
+				reported: { category: FailureCategory; detail: string },
+				error: unknown = null,
+				fields: FieldRecord[] = [],
+			): Promise<RunOutcome> => {
+				// What an abort broke is not the run's failure: it uses no attempt.
+				if (signal.aborted) return { kind: "aborted", reason: reasonOf(signal), url: page?.url() ?? null, fields };
+				const { category, by } = await classifyFailure({
+					page,
+					status,
+					reported,
+					error,
+					browserGone: instance !== null && !instance.isConnected(),
+					ai: request.ai,
+					signal,
+				});
+				// The page itself explains the failure: keep it as the Intervention's evidence (§5).
+				if (page && (by === "page" || by === "model")) await capture(page, events, "Failed");
+				await events.record({ type: "failed", category, by });
+				return { kind: "failed", category, detail: reported.detail, url: page?.url() ?? null, fields };
+			};
 			// Closing the context ends whatever the run is waiting on.
 			const abort = () => void context?.close().catch(() => {});
 			signal.addEventListener("abort", abort, { once: true });
@@ -94,12 +132,9 @@ export function createBrowserRunner(
 				page = await context.newPage();
 				const response = await page.goto(request.url, { waitUntil: "domcontentloaded", timeout: 45_000 });
 				await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-				const status = response?.status() ?? null;
+				status = response?.status() ?? null;
 				await events.record({ type: "opened", url: page.url(), status });
-				if (status === 404 || status === 410) {
-					await events.record({ type: "failed", category: "JOB_EXPIRED" });
-					return { kind: "failed", category: "JOB_EXPIRED", detail: `HTTP ${status}`, url: page.url(), fields: [] };
-				}
+				if (status === 404 || status === 410) return await fail({ category: "JOB_EXPIRED", detail: `HTTP ${status}` });
 				let driver: Driver | null = null;
 				for (const candidate of DRIVERS) {
 					if (await candidate.matches(page.url(), page)) {
@@ -109,14 +144,7 @@ export function createBrowserRunner(
 				}
 				if (!driver) {
 					await capture(page, events, "Unrecognized page");
-					await events.record({ type: "failed", category: "UNSUPPORTED_FLOW" });
-					return {
-						kind: "failed",
-						category: "UNSUPPORTED_FLOW",
-						detail: "no ATS adapter recognizes the page",
-						url: page.url(),
-						fields: [],
-					};
+					return await fail({ category: "UNSUPPORTED_FLOW", detail: "no ATS adapter recognizes the page" });
 				}
 				const outcome = await driver.run({
 					page,
@@ -129,6 +157,7 @@ export function createBrowserRunner(
 				});
 				const attempts = await blockedSubmissions(page.frames());
 				if (attempts > 0) await events.record({ type: "submit_blocked", attempts });
+				if (outcome.kind === "failed") return await fail(outcome, null, outcome.fields);
 				return outcome;
 			} catch (error) {
 				const url = page?.url() ?? null;
@@ -136,19 +165,8 @@ export function createBrowserRunner(
 					const detail = error instanceof Error ? error.name : "error";
 					return { kind: "submit_unknown", detail, url, fields: [] };
 				}
-				if (signal.aborted) {
-					const reason = signal.reason instanceof Error ? signal.reason.message : String(signal.reason);
-					return { kind: "aborted", reason, url, fields: [] };
-				}
-				const category =
-					error instanceof errors.TimeoutError
-						? "NETWORK"
-						: instance && !instance.isConnected()
-							? "BROWSER_FAILURE"
-							: "UNKNOWN";
-				await events.record({ type: "failed", category });
-				const detail = error instanceof Error ? error.name : "error";
-				return { kind: "failed", category, detail, url, fields: [] };
+				if (signal.aborted) return { kind: "aborted", reason: reasonOf(signal), url, fields: [] };
+				return await fail({ category: "UNKNOWN", detail: error instanceof Error ? error.name : "error" }, error);
 			} finally {
 				signal.removeEventListener("abort", abort);
 				await context?.close().catch(() => {});

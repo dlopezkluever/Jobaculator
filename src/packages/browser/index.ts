@@ -9,6 +9,7 @@ export type {
 	Driver,
 	PackageFile,
 	PackagePort,
+	RunAi,
 	RunEventSink,
 	RunInput,
 	RunOutcome,

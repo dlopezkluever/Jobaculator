@@ -1,7 +1,16 @@
 import type { z } from "zod";
 import type { UserId } from "../../db/ownership";
 
-export const TASKS = ["extract", "score", "strategy", "write", "answer", "interview", "browser_agent"] as const;
+export const TASKS = [
+	"extract",
+	"score",
+	"strategy",
+	"write",
+	"answer",
+	"interview",
+	"classify",
+	"browser_agent",
+] as const;
 /** What a call is for. Callers name a task, never a model; the route table picks the model. */
 export type Task = (typeof TASKS)[number];
 

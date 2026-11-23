@@ -90,6 +90,13 @@ export const FAILURE_CATEGORIES = [
 ] as const;
 export type FailureCategory = (typeof FAILURE_CATEGORIES)[number];
 
+/**
+ * How a pre-boundary failure is classified (§10): `page` and `error` are deterministic rules
+ * on what the page showed and what failed, `driver` is the adapter's own finding, `model` the
+ * bounded LLM classification, `none` nothing decided (UNKNOWN).
+ */
+export type ClassifiedBy = "page" | "driver" | "error" | "model" | "none";
+
 export type FieldType = "text" | "textarea" | "select" | "multi_select" | "search" | "file" | "checkbox";
 
 /**
@@ -127,7 +134,8 @@ export type RunEvent =
 	| { type: "submit_clicked" }
 	| { type: "confirmation_detected"; url: string }
 	| { type: "no_confirmation"; detail: string }
-	| { type: "failed"; category: FailureCategory };
+	/** `by`: what decided the category (§10: deterministic detection first, then the model). */
+	| { type: "failed"; category: FailureCategory; by?: ClassifiedBy };
 export type StoredRunEvent = RunEvent & { at: string };
 
 /** Where a Browser Run stopped (§11): the page, the field ledger and the Package files it uploaded. */
@@ -160,5 +168,18 @@ export type PackageRevision = {
 	fields: FieldRecord[];
 };
 
-export const INTERVENTION_KINDS = ["SUBMIT_UNKNOWN"] as const;
+/**
+ * What an Intervention asks the Candidate to resolve (§5): an Uncertain Submission, the
+ * automatic Browser Runs used up, or a pre-boundary failure only they can get past.
+ */
+export const INTERVENTION_KINDS = [
+	"SUBMIT_UNKNOWN",
+	"ATTEMPTS_EXHAUSTED",
+	"CAPTCHA",
+	"AUTH_REQUIRED",
+	"AUTHORITATIVE_FACT_REQUIRED",
+	"ASSESSMENT_REQUIRED",
+	"UNSUPPORTED_FLOW",
+	"DUPLICATE_APPLICATION",
+] as const;
 export type InterventionKind = (typeof INTERVENTION_KINDS)[number];

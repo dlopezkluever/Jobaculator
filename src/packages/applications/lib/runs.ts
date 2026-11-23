@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Executor, Tx } from "../../db/index";
 import type { UserId } from "../../db/ownership";
@@ -10,6 +10,7 @@ import { assertLiveAllowed } from "../../launch/index";
 import type { BlobHash } from "../../storage/index";
 import { user } from "../../users/tables";
 import { transition } from "./lifecycle";
+import { recoverFailedRun } from "./recovery";
 import { application, browserRun, submissionSettings, submitIntent } from "./schema";
 import { confirmSubmission, markUncertain } from "./submit";
 import {
@@ -87,17 +88,15 @@ export async function requestDryRun(exec: Executor, owner: UserId, applicationId
 // ——— Dispatch ———
 
 const ACTIVE: BrowserRunStatus[] = ["QUEUED", "RUNNING"];
-/** A Dry Run that ended on its own; a reclaimed or aborted one does not count. */
-const FINISHED: BrowserRunStatus[] = ["COMPLETED", "FAILED"];
 
 /**
  * The priority-pull dispatcher's claim for Browser Runs (§5): up to the free browsers, READY
  * Applications move to APPLYING with a QUEUED run each, explicit Candidate requests first,
  * then in Opportunity Value order. Effective mode = the Candidate's request > the Driving
  * Hunt's > the global setting. A Dry Run that finished leaves the Application READY and it
- * is not claimed again while its mode stays dry, unless the Candidate asks. A live run that
- * failed is not claimed again by itself (automatic retries are TB1-15's). Skips Users in
- * `excludeUsers` (under a Hold) and closed postings. Enqueue `browser_run` in the same transaction.
+ * is not claimed again while its mode stays dry, unless the Candidate asks. A failed run's
+ * retry waits for its backoff, unless the Candidate asks. Skips Users in `excludeUsers`
+ * (under a Hold) and closed postings. Enqueue `browser_run` in the same transaction.
  */
 export async function claimBrowserRuns(
 	tx: Tx,
@@ -118,14 +117,11 @@ export async function claimBrowserRuns(
 
 	const now = options.now ?? new Date();
 	const effective = sql`coalesce(${application.requestedMode}, ${hunt.submissionMode}, ${submissionSettings.mode}, 'DRY_RUN')`;
-	const finishedDryRun = sql`exists (select 1 from ${browserRun} where ${browserRun.applicationId} = ${application.id}
-		and ${browserRun.userId} = ${application.userId} and ${browserRun.mode} = 'dry'
-		and ${browserRun.status} in (${sql.join(
-			FINISHED.map((s) => sql`${s}`),
-			sql`, `,
-		)}))`;
-	const failedLiveRun = sql`exists (select 1 from ${browserRun} where ${browserRun.applicationId} = ${application.id}
-		and ${browserRun.userId} = ${application.userId} and ${browserRun.mode} = 'live' and ${browserRun.status} = 'FAILED')`;
+	// The last run that ended on its own (an aborted one does not count) was a completed Dry Run.
+	const finishedDryRun = sql`coalesce((select ${browserRun.mode} = 'dry' and ${browserRun.status} = 'COMPLETED'
+		from ${browserRun} where ${browserRun.applicationId} = ${application.id}
+		and ${browserRun.userId} = ${application.userId} and ${browserRun.status} <> 'ABORTED'
+		order by ${browserRun.createdAt} desc limit 1), false)`;
 	const excluded = options.excludeUsers ?? [];
 	const picked = await tx
 		.select({
@@ -145,12 +141,12 @@ export async function claimBrowserRuns(
 			and(
 				eq(application.status, "READY"),
 				eq(opportunity.status, "OPEN"),
+				or(isNotNull(application.requestedMode), isNull(application.retryAfter), lte(application.retryAfter, now)),
 				or(
 					and(sql`${effective} = 'DRY_RUN'`, or(isNotNull(application.requestedMode), sql`not ${finishedDryRun}`)),
 					options.live
 						? and(
 								sql`${effective} = 'LIVE'`,
-								sql`not ${failedLiveRun}`,
 								// The canary User is never submitted for (§18).
 								sql`not exists (select 1 from ${user} where ${user.id} = ${application.userId} and ${user.canary})`,
 								(options.excludeLiveUsers ?? []).length > 0
@@ -176,7 +172,7 @@ export async function claimBrowserRuns(
 	for (const row of picked) {
 		const owner = row.userId as UserId;
 		if (!(await transition(tx, owner, row.id, "READY", "APPLYING"))) continue;
-		await tx.update(application).set({ requestedMode: null }).where(eq(application.id, row.id));
+		await tx.update(application).set({ requestedMode: null, retryAfter: null }).where(eq(application.id, row.id));
 		const mode: RunMode = row.effective === "LIVE" ? "live" : "dry";
 		const [run] = await tx
 			.insert(browserRun)
@@ -271,11 +267,12 @@ export type RunEnd =
 	| { status: "ABORTED"; checkpoint: RunCheckpoint | null };
 
 /**
- * Ends this worker's run, keeping the evidence. Before the submit boundary the Application
- * goes back to READY: a finished Dry Run (§5), a pre-boundary failure (recovery comes with
- * TB1-15) or an abort, which uses no attempt. Past the boundary only a positive confirmation
- * makes it SUBMITTED; anything else is an Uncertain Submission (SUBMIT_UNKNOWN plus an
- * Intervention), never retried. False when the run is no longer this worker's (it was reclaimed).
+ * Ends this worker's run, keeping the evidence. Before the submit boundary a finished Dry Run
+ * (§5) leaves the Application READY with a fresh attempt budget, an abort (a deploy, a Hold,
+ * the gate refusing) leaves it READY using no attempt, and a failure goes through the retry
+ * table (`recoverFailedRun`). Past the boundary only a positive confirmation makes it
+ * SUBMITTED; anything else is an Uncertain Submission (SUBMIT_UNKNOWN plus an Intervention),
+ * never retried. False when the run is no longer this worker's (it was reclaimed).
  */
 export async function finishBrowserRun(
 	tx: Tx,
@@ -332,7 +329,15 @@ export async function finishBrowserRun(
 			{ intentId: intent.id, applicationId: finished.applicationId, browserRunId },
 			"no_confirmation",
 		);
+	} else if (failure) {
+		await recoverFailedRun(tx, owner, { applicationId: finished.applicationId, browserRunId }, failure.category);
 	} else {
+		if (status === "COMPLETED") {
+			await tx
+				.update(application)
+				.set({ attempts: 0 })
+				.where(and(eq(application.id, finished.applicationId), eq(application.userId, owner)));
+		}
 		await transition(tx, owner, finished.applicationId, "APPLYING", "READY");
 	}
 	await appendEvent(tx, owner, browserRunFinished, finished.applicationId, {
@@ -344,11 +349,15 @@ export async function finishBrowserRun(
 	return true;
 }
 
+/** A run lost before the boundary: its worker crashed or stopped heartbeating (§5: a crash is BROWSER_FAILURE). */
+const LOST: RunFailure = { category: "BROWSER_FAILURE", detail: "run_lost" };
+
 /**
  * The sweeper's reclaim (§5, ADR 0004): a RUNNING run whose worker has ended (another worker
- * owns the lock now) or whose heartbeat expired is ABORTED, using no attempt, and its
- * Application is READY again; a run that had crossed the submit boundary becomes an Uncertain
- * Submission instead, never retried. Returns how many.
+ * owns the lock now) or whose heartbeat expired. A graceful shutdown ends its own runs, so
+ * one left RUNNING was lost to a crash: before the boundary it FAILED as BROWSER_FAILURE and
+ * goes through the retry table; a run that had crossed it is ABORTED and becomes an Uncertain
+ * Submission, never retried. Returns how many.
  */
 export async function reclaimBrowserRuns(
 	db: Db,
@@ -376,27 +385,24 @@ export async function reclaimBrowserRuns(
 			.for("update", { skipLocked: true });
 		for (const run of stale) {
 			const owner = run.userId as UserId;
-			await tx.update(browserRun).set({ status: "ABORTED", finishedAt: new Date() }).where(eq(browserRun.id, run.id));
 			const [intent] = await tx
 				.select({ id: submitIntent.id })
 				.from(submitIntent)
 				.where(and(eq(submitIntent.browserRunId, run.id), eq(submitIntent.status, "OPEN")))
 				.for("update");
-			if (intent) {
-				await markUncertain(
-					tx,
-					owner,
-					{ intentId: intent.id, applicationId: run.applicationId, browserRunId: run.id },
-					"run_lost",
-				);
-			} else {
-				await transition(tx, owner, run.applicationId, "APPLYING", "READY");
-			}
+			const status: BrowserRunStatus = intent ? "ABORTED" : "FAILED";
+			await tx
+				.update(browserRun)
+				.set({ status, failure: intent ? null : LOST, finishedAt: new Date() })
+				.where(eq(browserRun.id, run.id));
+			const ids = { applicationId: run.applicationId, browserRunId: run.id };
+			if (intent) await markUncertain(tx, owner, { intentId: intent.id, ...ids }, "run_lost");
+			else await recoverFailedRun(tx, owner, ids, LOST.category);
 			await appendEvent(tx, owner, browserRunFinished, run.applicationId, {
 				browserRunId: run.id,
 				mode: run.mode,
-				status: "ABORTED",
-				category: null,
+				status,
+				category: intent ? null : LOST.category,
 			});
 		}
 		return stale.length;

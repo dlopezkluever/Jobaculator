@@ -14,6 +14,7 @@ import {
 	heartbeatBrowserRun,
 	prepareSubmitIntent,
 	queuedBrowserRuns,
+	type RunMode,
 	reclaimBrowserRuns,
 	recordBrowserRunEvents,
 	startBrowserRun,
@@ -39,7 +40,8 @@ import { isCanaryUser } from "../users/index";
 // create-only journal entry, then one transaction (recovery marker, launch gate, canary User,
 // APPLYING → SUBMITTING, frozen Package revision, submit-intent row); only after its commit the
 // final click. A journal that cannot be written raises a journal Hold and the run stays before
-// the boundary; past it, nothing is retried.
+// the boundary; past it, nothing is retried. A run that fails before it is classified by the
+// runner and recovered by the retry table (`finishBrowserRun`); aborts use no attempt.
 
 /** The run's hard wall-clock limit (§10); tune on real Dry Runs (§21). */
 export const RUN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -48,6 +50,11 @@ export const HEARTBEAT_MS = 15 * 1000;
 export const HEARTBEAT_EXPIRY_MS = 4 * HEARTBEAT_MS;
 /** The worker runs one browser (§17). */
 export const BROWSERS = 1;
+
+/** Why a run stopped without failing: it uses no attempt. */
+class ShutdownAbort extends Error {
+	override name = "ShutdownAbort";
+}
 
 /**
  * One Browser Run. Never retried by pg-boss (ADR 0004: no automatic engine retries); its
@@ -67,6 +74,21 @@ export type BrowserPipeline = {
 	sweep(): Promise<{ reclaimed: number; nudged: number }>;
 	/** Registers the `browser_run` consumer. */
 	work(): Promise<void>;
+	/**
+	 * Graceful shutdown (§5): no new run starts or is dispatched, runs before the boundary are
+	 * aborted (no attempt used), and runs past it get `graceMs` to record their confirmation
+	 * before they are ended, as Uncertain Submissions.
+	 */
+	stop(options: { graceMs: number }): Promise<void>;
+};
+
+/** A run this worker is executing, as graceful shutdown sees it. */
+type ActiveRun = {
+	shutdown: AbortController;
+	/** The submit boundary being crossed now, if it is. */
+	crossing: Promise<boolean> | null;
+	crossed: boolean;
+	done: Promise<void>;
 };
 
 export function createBrowserPipeline(deps: {
@@ -87,8 +109,11 @@ export function createBrowserPipeline(deps: {
 	const { db, jobs, llm, storage, adapters, runner, journal, marker, log } = deps;
 	const workerId = deps.workerId ?? randomUUID();
 	const timeoutMs = deps.timeoutMs ?? RUN_TIMEOUT_MS;
+	let stopping = false;
+	const active = new Map<string, ActiveRun>();
 
 	async function dispatch() {
+		if (stopping) return 0;
 		// A restore in progress blocks dispatch whatever the database says (§13).
 		if (await marker.present()) return 0;
 		const held = await heldUsers(db, "contact_identity");
@@ -161,11 +186,34 @@ export function createBrowserPipeline(deps: {
 	}
 
 	async function runBrowser(userId: UserId, browserRunId: string) {
+		// Shutting down: the run stays QUEUED and the next worker's sweeper nudges it.
+		if (stopping) return;
 		const started = await startBrowserRun(db, userId, browserRunId, workerId);
 		if (!started) return;
+		const run: ActiveRun = { shutdown: new AbortController(), crossing: null, crossed: false, done: Promise.resolve() };
+		// Shutdown began while this run was being taken: it ends at once, before the boundary.
+		if (stopping) run.shutdown.abort(new ShutdownAbort("the worker is shutting down"));
+		run.done = execute(userId, browserRunId, started, run);
+		active.set(browserRunId, run);
+		try {
+			await run.done;
+		} finally {
+			active.delete(browserRunId);
+		}
+		// The browser is free: the next run need not wait for the tick.
+		await dispatch();
+	}
+
+	async function execute(
+		userId: UserId,
+		browserRunId: string,
+		started: { applicationId: string; mode: RunMode },
+		run: ActiveRun,
+	) {
 		const { applicationId } = started;
 		const lost = new AbortController();
-		const signal = AbortSignal.any([lost.signal, AbortSignal.timeout(timeoutMs)]);
+		const timedOut = AbortSignal.timeout(timeoutMs);
+		const signal = AbortSignal.any([lost.signal, run.shutdown.signal, timedOut]);
 		const heartbeat = setInterval(() => {
 			heartbeatBrowserRun(db, userId, browserRunId, workerId)
 				.then((ours) => {
@@ -237,19 +285,52 @@ export function createBrowserPipeline(deps: {
 			const snapshot = pkg.jobSnapshot;
 			const gate: SubmitGate = {
 				async cross(fields) {
+					// Shutdown waits for a crossing in flight; one asked for after it began is refused.
+					if (stopping || signal.aborted) return false;
 					const files =
 						resume && resumeBlob
 							? fields
 									.filter((f) => f.key === "resume" && f.ok)
 									.map((f) => ({ key: f.key, blob: resumeBlob as string, filename: resume.filename }))
 							: [];
-					return crossSubmitBoundary(userId, browserRunId, snapshot, { files, fields });
+					run.crossing = crossSubmitBoundary(userId, browserRunId, snapshot, { files, fields });
+					run.crossed = await run.crossing;
+					return run.crossed;
 				},
 			};
-			outcome = await runner.run({ url: snapshot.applyUrl, mode: started.mode, package: port, events, gate, signal });
+			outcome = await runner.run({
+				url: snapshot.applyUrl,
+				mode: started.mode,
+				package: port,
+				events,
+				gate,
+				signal,
+				ai: {
+					llm,
+					attribution: {
+						userId,
+						huntId: hunt.id,
+						applicationId,
+						opportunityId: application.opportunityId,
+						browserRunId,
+					},
+				},
+			});
+			// The wall-clock limit is the run's own failure; a shutdown or a lost run is not (§5).
+			if (outcome.kind === "aborted" && timedOut.aborted && !run.shutdown.signal.aborted && !lost.signal.aborted) {
+				outcome = {
+					kind: "failed",
+					category: "UNKNOWN",
+					detail: "timed out",
+					url: outcome.url,
+					fields: outcome.fields,
+				};
+			}
 		} catch (error) {
 			log.error({ err: error, event: "browser_run_error", userId, browserRunId });
-			outcome = { kind: "failed", category: "UNKNOWN", detail: "error", url: null, fields: [] };
+			outcome = run.shutdown.signal.aborted
+				? { kind: "aborted", reason: "shutdown", url: null, fields: [] }
+				: { kind: "failed", category: "UNKNOWN", detail: "error", url: null, fields: [] };
 		} finally {
 			clearInterval(heartbeat);
 			await rm(workdir, { recursive: true, force: true });
@@ -287,8 +368,6 @@ export function createBrowserPipeline(deps: {
 			category: outcome.kind === "failed" ? outcome.category : null,
 			recorded: ended,
 		});
-		// The browser is free: the next run need not wait for the tick.
-		await dispatch();
 	}
 
 	return {
@@ -313,6 +392,21 @@ export function createBrowserPipeline(deps: {
 				log.info({ event: "journal_hold_lifted", users: journalHeld.length });
 			}
 			return { reclaimed, nudged };
+		},
+		async stop({ graceMs }) {
+			stopping = true;
+			const runs = [...active.values()];
+			await Promise.all(
+				runs.map(async (run) => {
+					await run.crossing?.catch(() => false);
+					if (!run.crossed) run.shutdown.abort(new ShutdownAbort("the worker is shutting down"));
+				}),
+			);
+			const grace = setTimeout(() => {
+				for (const run of runs) run.shutdown.abort(new ShutdownAbort("the shutdown grace ran out"));
+			}, graceMs);
+			await Promise.allSettled(runs.map((run) => run.done));
+			clearTimeout(grace);
 		},
 		async work() {
 			await jobs.work(browserRunQueue, ({ userId, browserRunId }) => runBrowser(userId, browserRunId), {

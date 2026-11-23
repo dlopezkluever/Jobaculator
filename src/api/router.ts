@@ -12,8 +12,10 @@ import {
 	updateAiSettings,
 } from "../packages/ai/index";
 import {
+	ATTEMPT_BUDGET,
 	countDryRuns,
 	countInFlight,
+	countNeedsYou,
 	countSubmitted,
 	countUncertain,
 	getApplication,
@@ -21,6 +23,7 @@ import {
 	getSubmissionMode,
 	listApplications,
 	listBrowserRuns,
+	listInterventions,
 	listSubmitIntents,
 	RunRefused,
 	requestDryRun,
@@ -118,14 +121,18 @@ export const appRouter = router({
 	dashboard: router({
 		/**
 		 * The Dashboard's counts (§16), owner-scoped: confirmed Submitted on the Candidate's local
-		 * day. Dry Runs and Uncertain Submissions never count as Submitted. Needs You and Review
-		 * arrive with Tracer Bullets 2 and 3.
+		 * day. Dry Runs and Uncertain Submissions never count as Submitted. Review arrives with
+		 * Tracer Bullet 3.
 		 */
 		summary: authedProcedure.query(async ({ ctx }) => ({
 			submitted: await countSubmitted(ctx.db, ctx.userId, (await getAiSettings(ctx.db, ctx.userId)).timeZone),
 			inFlight: await countInFlight(ctx.db, ctx.userId),
 			dryRuns: await countDryRuns(ctx.db, ctx.userId),
-			attention: { needsYou: 0, review: 0, uncertain: await countUncertain(ctx.db, ctx.userId) },
+			attention: {
+				needsYou: await countNeedsYou(ctx.db, ctx.userId),
+				review: 0,
+				uncertain: await countUncertain(ctx.db, ctx.userId),
+			},
 			holds: await countActiveHolds(ctx.db, ctx.userId),
 		})),
 	}),
@@ -192,13 +199,14 @@ export const appRouter = router({
 		get: authedProcedure.input(z.object({ id: z.uuid() })).query(async ({ ctx, input }) => {
 			const application = await getApplication(ctx.db, ctx.userId, input.id);
 			if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No such Application" });
-			const [pkg, opportunity, hunt, knowledge, runs, intents] = await Promise.all([
+			const [pkg, opportunity, hunt, knowledge, runs, intents, interventions] = await Promise.all([
 				getPackage(ctx.db, ctx.userId, application.id),
 				getOpportunity(ctx.db, ctx.userId, application.opportunityId),
 				getHunt(ctx.db, ctx.userId, application.drivingHuntId),
 				getKnowledgeBase(ctx.db, ctx.userId),
 				listBrowserRuns(ctx.db, ctx.userId, application.id),
 				listSubmitIntents(ctx.db, ctx.userId, application.id),
+				listInterventions(ctx.db, ctx.userId, application.id),
 			]);
 			// What each answer rests on, as the Candidate reads it. Standing answers are not stored yet (§8).
 			const facts = new Map(
@@ -221,6 +229,17 @@ export const appRouter = router({
 				employerName: opportunity?.employerName ?? pkg?.jobSnapshot.employerName ?? "",
 				drivingHunt: hunt ? { id: hunt.id, name: hunt.name } : null,
 				createdAt: application.createdAt.toISOString(),
+				/** Recovery (§5): failed runs counted against the budget, and when a retry may run. */
+				attempts: { used: application.attempts, budget: ATTEMPT_BUDGET },
+				retryAfter: application.status === "READY" ? (application.retryAfter?.toISOString() ?? null) : null,
+				/** Stub Interventions (§5): what the Candidate must resolve; the Inbox is Tracer Bullet 2's. */
+				interventions: interventions.map((i) => ({
+					id: i.id,
+					kind: i.kind,
+					browserRunId: i.browserRunId,
+					createdAt: i.createdAt.toISOString(),
+					open: i.resolvedAt === null,
+				})),
 				package: pkg && {
 					jobSnapshot: pkg.jobSnapshot,
 					strategy: pkg.strategy,

@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BrowserContext } from "playwright";
 import { describe, expect, it } from "vitest";
+import { createScriptedLlm } from "../../ai/testing";
 import type { RunEvent } from "../../applications/index";
+import { newUserId } from "../../db/testing";
 import { type ApplicationQuestion, createGreenhouseAdapter, createSourceHttp } from "../../discovery/index";
 import type { ApplicationAnswer } from "../../generation/index";
 import { createBrowserRunner, type PackagePort, type SubmitGate } from "../index";
@@ -99,6 +101,7 @@ function dryRun(
 				},
 			},
 			signal: AbortSignal.timeout(90_000),
+			ai: { llm: createScriptedLlm([]), attribution: { userId: newUserId() } },
 			events: {
 				record: async (event) => {
 					events.push(event);

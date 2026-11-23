@@ -86,19 +86,20 @@ export type Route = { provider: Provider; model: ModelId };
 const anthropic = (model: ModelId & `claude-${string}`): Route => ({ provider: "anthropic", model });
 const openai = (model: ModelId & `gpt-${string}`): Route => ({ provider: "openai", model });
 
-const TEXT_TASKS = ["extract", "score", "strategy", "write", "answer", "interview"] as const;
+const TEXT_TASKS = ["extract", "score", "strategy", "write", "answer", "interview", "classify"] as const;
 type TextTask = (typeof TEXT_TASKS)[number];
 
 function chains(bulk: Route[], judgement: Route[], browser: Route[]): Record<Task, readonly Route[]> {
 	const byTask = Object.fromEntries(
-		TEXT_TASKS.map((task) => [task, task === "extract" || task === "score" ? bulk : judgement]),
+		TEXT_TASKS.map((task) => [task, task === "extract" || task === "score" || task === "classify" ? bulk : judgement]),
 	) as Record<TextTask, Route[]>;
 	return { ...byTask, browser_agent: browser };
 }
 
 /**
  * Task → ordered fallback chain, per preset (§12). Only implemented adapters appear, and
- * computer use only on Anthropic. `extract` and `score` are high-volume; the rest need judgement.
+ * computer use only on Anthropic. `extract` and `score` are high-volume and `classify` (a failed
+ * Browser Run's category) is small; the rest need judgement.
  */
 export const ROUTES: Record<Preset, Record<Task, readonly Route[]>> = {
 	economy: chains(

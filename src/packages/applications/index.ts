@@ -42,6 +42,15 @@ export {
 	strategyWritten,
 } from "./lib/package";
 export {
+	ATTEMPT_BUDGET,
+	browserRunRetryScheduled,
+	countNeedsYou,
+	type Intervention,
+	interventionOpened,
+	listInterventions,
+	RETRY_TABLE,
+} from "./lib/recovery";
+export {
 	type BrowserRun,
 	browserRunEvidence,
 	browserRunFinished,
@@ -78,12 +87,15 @@ export {
 	type ApplicationStatus,
 	BROWSER_RUN_STATUSES,
 	type BrowserRunStatus,
+	type ClassifiedBy,
 	type Confirmation,
 	FAILURE_CATEGORIES,
 	type FailureCategory,
 	type FieldRecord,
 	type FieldType,
 	type FrozenEvaluation,
+	INTERVENTION_KINDS,
+	type InterventionKind,
 	type PackageRevision,
 	type PreparationFailure,
 	RUN_MODES,
@@ -121,6 +133,10 @@ export type Application = {
 	evaluation: FrozenEvaluation;
 	/** When `prepare` was handed this Application; null while it waits its turn. */
 	preparationDispatchedAt: Date | null;
+	/** Failed Browser Runs counted against the attempt budget (§5). */
+	attempts: number;
+	/** When a failed run's retry may be dispatched; null when none waits. */
+	retryAfter: Date | null;
 	createdAt: Date;
 };
 
@@ -134,6 +150,8 @@ const columns = {
 	review: application.review,
 	evaluation: application.evaluation,
 	preparationDispatchedAt: application.preparationDispatchedAt,
+	attempts: application.attempts,
+	retryAfter: application.retryAfter,
 	createdAt: application.createdAt,
 };
 

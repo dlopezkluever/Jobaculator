@@ -53,6 +53,7 @@ const DEFAULT_MAX_OUTPUT: Record<Task, number> = {
 	write: 8192,
 	answer: 4096,
 	interview: 2048,
+	classify: 256,
 	browser_agent: 4096,
 };
 
