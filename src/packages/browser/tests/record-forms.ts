@@ -41,5 +41,9 @@ for (const form of Object.values(RECORDED_FORMS)) {
 		body: await response.json(),
 	};
 	writeFileSync(form.questions, `${JSON.stringify(recorded, null, "\t")}\n`);
+	// The confirmation page anyone can open; recording it submits nothing.
+	const confirmation = await fetch(form.confirmationUrl);
+	if (!confirmation.ok) throw new Error(`the confirmation page returned ${confirmation.status}`);
+	writeFileSync(form.confirmation, await confirmation.text());
 	console.log(`recorded ${form.url}`);
 }

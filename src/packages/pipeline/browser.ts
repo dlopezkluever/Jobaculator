@@ -6,31 +6,40 @@ import { z } from "zod";
 import type { LlmClient } from "../ai/index";
 import {
 	addAnswers,
+	beginSubmission,
 	claimBrowserRuns,
 	finishBrowserRun,
 	getApplication,
 	getPackage,
 	heartbeatBrowserRun,
+	prepareSubmitIntent,
 	queuedBrowserRuns,
 	reclaimBrowserRuns,
 	recordBrowserRunEvents,
 	startBrowserRun,
 } from "../applications/index";
-import type { BrowserRunner, PackagePort, RunEventSink, RunOutcome } from "../browser/index";
+import type { BrowserRunner, PackagePort, RunEventSink, RunOutcome, SubmitGate } from "../browser/index";
 import { buildCandidateContext } from "../candidate/index";
 import type { Db } from "../db/index";
 import type { UserId } from "../db/ownership";
 import { type Adapters, readApplicationQuestions } from "../discovery/index";
 import { answerQuestions } from "../generation/index";
-import { heldUsers } from "../holds/index";
+import { heldUsers, liftHold, raiseHold } from "../holds/index";
 import { getHunt } from "../hunts/index";
 import { defineQueue, type Jobs } from "../jobs/index";
+import { JournalUnavailable, journalUrl, type SubmitJournal } from "../journal/index";
+import { getLaunchGate, type RecoveryMarker } from "../launch/index";
 import type { Logger } from "../log/index";
 import type { Storage } from "../storage/index";
+import { isCanaryUser } from "../users/index";
 
 // Pipeline step 6 (§5): `browser_run(application, mode)`. Priority-pull dispatch to the one
-// browser, a worker-owned run with a ~15 s heartbeat, reclaim by the sweeper. Dry Run only
-// until SubmitGate lands (TB1-14).
+// browser, a worker-owned run with a ~15 s heartbeat, reclaim by the sweeper. A live run
+// crosses the submit boundary through `SubmitGate` (§5, #22): the stable intent id, the
+// create-only journal entry, then one transaction (recovery marker, launch gate, canary User,
+// APPLYING → SUBMITTING, frozen Package revision, submit-intent row); only after its commit the
+// final click. A journal that cannot be written raises a journal Hold and the run stays before
+// the boundary; past it, nothing is retried.
 
 /** The run's hard wall-clock limit (§10); tune on real Dry Runs (§21). */
 export const RUN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -67,19 +76,31 @@ export function createBrowserPipeline(deps: {
 	storage: Storage;
 	adapters: Adapters;
 	runner: BrowserRunner;
+	/** The submit-intent journal; null when it is not configured, so live runs never cross. */
+	journal: SubmitJournal | null;
+	marker: RecoveryMarker;
 	log: Logger;
 	/** This worker process; a run another worker owned is reclaimed. */
 	workerId?: string;
 	timeoutMs?: number;
 }): BrowserPipeline {
-	const { db, jobs, llm, storage, adapters, runner, log } = deps;
+	const { db, jobs, llm, storage, adapters, runner, journal, marker, log } = deps;
 	const workerId = deps.workerId ?? randomUUID();
 	const timeoutMs = deps.timeoutMs ?? RUN_TIMEOUT_MS;
 
 	async function dispatch() {
+		// A restore in progress blocks dispatch whatever the database says (§13).
+		if (await marker.present()) return 0;
 		const held = await heldUsers(db, "contact_identity");
+		const journalHeld = await heldUsers(db, "journal");
+		const live = journal !== null && (await getLaunchGate(db)).open;
 		const claimed = await db.transaction(async (tx) => {
-			const picked = await claimBrowserRuns(tx, { browsers: BROWSERS, excludeUsers: held });
+			const picked = await claimBrowserRuns(tx, {
+				browsers: BROWSERS,
+				excludeUsers: held,
+				live,
+				excludeLiveUsers: journalHeld,
+			});
 			for (const { userId, browserRunId } of picked) {
 				await jobs.send(browserRunQueue, { userId, browserRunId }, { tx });
 			}
@@ -87,6 +108,56 @@ export function createBrowserPipeline(deps: {
 		});
 		if (claimed > 0) log.info({ event: "browser_runs_dispatched", claimed });
 		return claimed;
+	}
+
+	/**
+	 * `SubmitGate` (§5, #22). True only once the boundary transaction has committed: the run may
+	 * click submit, once. Every refusal leaves the run before the boundary, using no attempt.
+	 */
+	async function crossSubmitBoundary(
+		userId: UserId,
+		browserRunId: string,
+		snapshot: { source: string; boardToken: string; nativeId: string; applyUrl: string },
+		frozen: { files: { key: string; blob: string; filename: string }[]; fields: Parameters<SubmitGate["cross"]>[0] },
+	): Promise<boolean> {
+		// 1. The run's stable intent id, reused if it already has one.
+		const intent = await prepareSubmitIntent(db, userId, browserRunId, workerId);
+		if (!intent) return false;
+		// 2. The create-only journal entry, confirmed before the transaction.
+		try {
+			if (!journal) throw new JournalUnavailable("the journal is not configured");
+			await journal.write({
+				intentId: intent.intentId,
+				userId,
+				applicationId: intent.applicationId,
+				opportunityId: intent.opportunityId,
+				browserRunId,
+				posting: {
+					source: snapshot.source,
+					boardToken: snapshot.boardToken,
+					nativeId: snapshot.nativeId,
+					dedupKey: intent.dedupKey,
+				},
+				applyUrl: journalUrl(snapshot.applyUrl),
+				mode: "live",
+				at: new Date().toISOString(),
+			});
+		} catch (error) {
+			if (!(error instanceof JournalUnavailable)) throw error;
+			const raised = await db.transaction((tx) => raiseHold(tx, userId, "journal", "journal_write_failed"));
+			log.warn({ event: "journal_write_failed", userId, browserRunId, raised });
+			return false;
+		}
+		// 3. One transaction: the recovery marker, the launch gate and the canary User, then the boundary.
+		const crossed = await db.transaction(async (tx) => {
+			if (await marker.present()) return false;
+			if (!(await getLaunchGate(tx)).open) return false;
+			if (await isCanaryUser(tx, userId)) return false;
+			return beginSubmission(tx, userId, { browserRunId, workerId, intentId: intent.intentId, ...frozen });
+		});
+		log.info({ event: crossed ? "submit_boundary_crossed" : "submit_boundary_refused", userId, browserRunId });
+		// 4. The caller clicks only after this commit.
+		return crossed;
 	}
 
 	async function runBrowser(userId: UserId, browserRunId: string) {
@@ -163,7 +234,19 @@ export function createBrowserPipeline(deps: {
 					return answered.answers;
 				},
 			};
-			outcome = await runner.run({ url: pkg.jobSnapshot.applyUrl, mode: started.mode, package: port, events, signal });
+			const snapshot = pkg.jobSnapshot;
+			const gate: SubmitGate = {
+				async cross(fields) {
+					const files =
+						resume && resumeBlob
+							? fields
+									.filter((f) => f.key === "resume" && f.ok)
+									.map((f) => ({ key: f.key, blob: resumeBlob as string, filename: resume.filename }))
+							: [];
+					return crossSubmitBoundary(userId, browserRunId, snapshot, { files, fields });
+				},
+			};
+			outcome = await runner.run({ url: snapshot.applyUrl, mode: started.mode, package: port, events, gate, signal });
 		} catch (error) {
 			log.error({ err: error, event: "browser_run_error", userId, browserRunId });
 			outcome = { kind: "failed", category: "UNKNOWN", detail: "error", url: null, fields: [] };
@@ -186,9 +269,13 @@ export function createBrowserPipeline(deps: {
 				workerId,
 				outcome.kind === "dry_run_complete"
 					? { status: "COMPLETED", checkpoint }
-					: outcome.kind === "failed"
-						? { status: "FAILED", checkpoint, failure: { category: outcome.category, detail: outcome.detail } }
-						: { status: "ABORTED", checkpoint },
+					: outcome.kind === "submitted"
+						? { status: "SUBMITTED", checkpoint, confirmation: outcome.confirmation }
+						: outcome.kind === "failed"
+							? { status: "FAILED", checkpoint, failure: { category: outcome.category, detail: outcome.detail } }
+							: outcome.kind === "submit_unknown"
+								? { status: "FAILED", checkpoint, failure: { category: "UNKNOWN", detail: outcome.detail } }
+								: { status: "ABORTED", checkpoint },
 			),
 		);
 		log.info({
@@ -218,6 +305,12 @@ export function createBrowserPipeline(deps: {
 				if (live.has(browserRunId)) continue;
 				await jobs.send(browserRunQueue, { userId, browserRunId });
 				nudged++;
+			}
+			// A journal Hold lifts once the journal answers again (§5: lifted by a probe).
+			const journalHeld = await heldUsers(db, "journal");
+			if (journalHeld.length > 0 && journal && (await journal.check())) {
+				for (const userId of journalHeld) await db.transaction((tx) => liftHold(tx, userId, "journal"));
+				log.info({ event: "journal_hold_lifted", users: journalHeld.length });
 			}
 			return { reclaimed, nudged };
 		},

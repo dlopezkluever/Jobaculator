@@ -6,16 +6,20 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createScriptedLlm } from "../../ai/testing";
 import {
 	APPLICATION_SUBJECT,
+	beginSubmission,
 	countDryRuns,
+	countSubmitted,
+	countUncertain,
 	getApplication,
 	getPackage,
 	listBrowserRuns,
-	RunRefused,
+	listSubmitIntents,
+	prepareSubmitIntent,
 	requestDryRun,
 	setSubmissionMode,
 	startBrowserRun,
 } from "../../applications/index";
-import type { BrowserRunner, RunRequest } from "../../browser/index";
+import type { BrowserRunner, RunOutcome, RunRequest } from "../../browser/index";
 import { createCandidate, proposeFacts } from "../../candidate/index";
 import type { UserId } from "../../db/ownership";
 import { createTestDatabase, newUserId, type TestDatabase } from "../../db/testing";
@@ -28,8 +32,11 @@ import {
 	watchBoards,
 } from "../../discovery/index";
 import { listEvents } from "../../events/index";
+import { listActiveHolds } from "../../holds/index";
 import { createHunt } from "../../hunts/index";
 import { createJobs, type Jobs } from "../../jobs/index";
+import { createMemoryJournal } from "../../journal/testing";
+import { LiveRefused, type RecoveryMarker, recordLaunchStep } from "../../launch/index";
 import { createLogger } from "../../log/index";
 import { createStorage, type Storage } from "../../storage/index";
 import { browserRunQueue, createBrowserPipeline } from "../browser";
@@ -171,6 +178,12 @@ function fakeRunner(act: (request: RunRequest) => Promise<void> = async () => {}
 	return { runner, requests };
 }
 
+const journal = createMemoryJournal();
+const marker: RecoveryMarker & { restoring: boolean } = {
+	restoring: false,
+	present: async () => marker.restoring,
+};
+
 const pipeline = (runner: BrowserRunner, script: Parameters<typeof createScriptedLlm>[0] = [], workerId = "worker-a") =>
 	createBrowserPipeline({
 		db: database.db,
@@ -179,9 +192,48 @@ const pipeline = (runner: BrowserRunner, script: Parameters<typeof createScripte
 		storage,
 		adapters,
 		runner,
+		journal,
+		marker,
 		log,
 		workerId,
 	});
+
+const CONFIRMATION = {
+	text: "Thank you for applying. Your application has been received.",
+	url: "https://job-boards.greenhouse.io/acme/jobs/1/confirmation",
+	at: "2026-11-23T10:00:00.000Z",
+	screenshot: null,
+	applicationId: null,
+};
+
+/**
+ * Stands in for Chromium on a live run: crosses the run's real SubmitGate, as the driver does
+ * before its final click, then reports what the page showed afterwards.
+ */
+function liveRunner(after: "confirmed" | "no_confirmation") {
+	const requests: RunRequest[] = [];
+	const runner: BrowserRunner = {
+		async run(request): Promise<RunOutcome> {
+			requests.push(request);
+			expect(request.mode).toBe("live");
+			if (!(await request.gate.cross([]))) return { kind: "aborted", reason: "submit refused", url: null, fields: [] };
+			return after === "confirmed"
+				? { kind: "submitted", confirmation: CONFIRMATION, url: CONFIRMATION.url, fields: [] }
+				: { kind: "submit_unknown", detail: "no confirmation page", url: null, fields: [] };
+		},
+		close: async () => {},
+	};
+	return { runner, requests };
+}
+
+/** A READY Application whose Candidate submits live. */
+async function liveApplication() {
+	const ready = await readyApplication();
+	await setSubmissionMode(database.db, ready.owner, "LIVE");
+	return ready;
+}
+
+const status = async (owner: UserId, id: string) => (await getApplication(database.db, owner, id))?.status;
 
 /** The QUEUED run's job the dispatcher sent for an Application. */
 async function queuedRun(applicationId: string) {
@@ -307,7 +359,7 @@ describe("browser_run", () => {
 
 	it("keeps Live refused until the launch gate: globally and on a Hunt", async () => {
 		const { owner } = await readyApplication();
-		await expect(setSubmissionMode(database.db, owner, "LIVE")).rejects.toBeInstanceOf(RunRefused);
+		await expect(setSubmissionMode(database.db, owner, "LIVE")).rejects.toBeInstanceOf(LiveRefused);
 		await expect(
 			createHunt(database.db, owner, {
 				name: "Live",
@@ -321,5 +373,171 @@ describe("browser_run", () => {
 			}),
 		).rejects.toThrow(/launch gate/);
 		await setSubmissionMode(database.db, owner, "DRY_RUN");
+	});
+});
+
+// The launch gate is system-wide: these run after the refusal above, with it open.
+describe("SubmitGate through the production path", () => {
+	beforeAll(async () => {
+		// Earlier tests leave READY Dry Run Applications; the one browser is for these scenarios.
+		await database.db.execute(sql`update application set status = 'ABANDONED' where status = 'READY'`);
+		await recordLaunchStep(database.db, "restore_drill_passed");
+		await recordLaunchStep(database.db, "journal_activated");
+	});
+
+	it("submits a confirmed Application once: journal entry, intent row, SUBMITTED, counted; a repeated job submits nothing", async () => {
+		const { owner, applicationId } = await liveApplication();
+		const { runner, requests } = liveRunner("confirmed");
+		const browser = pipeline(runner);
+		expect(await browser.dispatch()).toBe(1);
+		const { browserRunId } = await queuedRun(applicationId);
+		await browser.runBrowser(owner, browserRunId);
+
+		expect(await status(owner, applicationId)).toBe("SUBMITTED");
+		const [intent] = await listSubmitIntents(database.db, owner, applicationId);
+		expect(intent).toMatchObject({ browserRunId, status: "SUBMITTED", confirmation: CONFIRMATION });
+		// Journaled under the same intent id, before the row existed.
+		expect(journal.entries.get(intent?.id ?? "")).toMatchObject({ applicationId, browserRunId, mode: "live" });
+		expect(await countSubmitted(database.db, owner, "UTC")).toEqual({ today: 1, week: 1, allTime: 1 });
+		// The Package revision was frozen with the answers it submitted.
+		const [row] = (
+			await database.db.execute<{ revision: { answers: { question: { id: string } }[] } }>(
+				sql`select revision from submit_intent where id = ${intent?.id}`,
+			)
+		).rows;
+		expect(row?.revision.answers.map((a) => a.question.id)).toEqual(["email"]);
+		const codes = (await listEvents(database.db, owner, { type: APPLICATION_SUBJECT, id: applicationId })).map(
+			(e) => e.code,
+		);
+		expect(codes.slice(-5)).toEqual([
+			"application_status_changed",
+			"submit_boundary_crossed",
+			"application_status_changed",
+			"submission_confirmed",
+			"browser_run_finished",
+		]);
+
+		// The job delivered again, and the dispatcher, find nothing to do: no second submission.
+		await browser.runBrowser(owner, browserRunId);
+		expect(await browser.dispatch()).toBe(0);
+		expect(requests).toHaveLength(1);
+		expect(journal.entries.size).toBe(1);
+		expect(await listSubmitIntents(database.db, owner, applicationId)).toHaveLength(1);
+	});
+
+	it("records an Uncertain Submission when no confirmation is seen, and never submits it again", async () => {
+		const { owner, applicationId } = await liveApplication();
+		const { runner, requests } = liveRunner("no_confirmation");
+		const browser = pipeline(runner);
+		expect(await browser.dispatch()).toBe(1);
+		const { browserRunId } = await queuedRun(applicationId);
+		await browser.runBrowser(owner, browserRunId);
+
+		expect(await status(owner, applicationId)).toBe("SUBMIT_UNKNOWN");
+		const [intent] = await listSubmitIntents(database.db, owner, applicationId);
+		expect(intent).toMatchObject({ browserRunId, status: "UNKNOWN", confirmation: null });
+		expect(journal.entries.has(intent?.id ?? "")).toBe(true);
+		const interventions = await database.db.execute<{ kind: string }>(
+			sql`select kind from intervention where application_id = ${applicationId}`,
+		);
+		expect(interventions.rows).toEqual([{ kind: "SUBMIT_UNKNOWN" }]);
+		expect(await countSubmitted(database.db, owner, "UTC")).toEqual({ today: 0, week: 0, allTime: 0 });
+		expect(await countUncertain(database.db, owner)).toBe(1);
+
+		await browser.runBrowser(owner, browserRunId);
+		expect(await browser.dispatch()).toBe(0);
+		await browser.sweep();
+		expect(await browser.dispatch()).toBe(0);
+		expect(requests).toHaveLength(1);
+	});
+
+	it("makes a run lost after the boundary uncertain, never READY again", async () => {
+		const { owner, applicationId } = await liveApplication();
+		const browser = pipeline(liveRunner("confirmed").runner, [], "worker-new");
+		expect(await browser.dispatch()).toBe(1);
+		const { browserRunId } = await queuedRun(applicationId);
+		// A worker that has since ended crossed the boundary, then died before recording the outcome.
+		await startBrowserRun(database.db, owner, browserRunId, "worker-old");
+		const intent = await prepareSubmitIntent(database.db, owner, browserRunId, "worker-old");
+		if (!intent) throw new Error("no intent");
+		await journal.write({
+			intentId: intent.intentId,
+			userId: owner,
+			applicationId,
+			opportunityId: intent.opportunityId,
+			browserRunId,
+			posting: { source: "greenhouse", boardToken: "acme", nativeId: "1", dedupKey: intent.dedupKey },
+			applyUrl: "https://job-boards.greenhouse.io/acme/jobs/1",
+			mode: "live",
+			at: new Date().toISOString(),
+		});
+		const crossed = await database.db.transaction((tx) =>
+			beginSubmission(tx, owner, {
+				browserRunId,
+				workerId: "worker-old",
+				intentId: intent.intentId,
+				files: [],
+				fields: [],
+			}),
+		);
+		expect(crossed).toBe(true);
+		expect(await status(owner, applicationId)).toBe("SUBMITTING");
+
+		expect((await browser.sweep()).reclaimed).toBe(1);
+		expect(await status(owner, applicationId)).toBe("SUBMIT_UNKNOWN");
+		expect((await listSubmitIntents(database.db, owner, applicationId))[0]?.status).toBe("UNKNOWN");
+		expect(await browser.dispatch()).toBe(0);
+	});
+
+	it("stays before the boundary when the journal cannot be written: a journal Hold, no intent, no attempt; lifted, it submits", async () => {
+		const { owner, applicationId } = await liveApplication();
+		const { runner, requests } = liveRunner("confirmed");
+		const browser = pipeline(runner);
+		journal.failing = true;
+		try {
+			expect(await browser.dispatch()).toBe(1);
+			await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+			expect(await status(owner, applicationId)).toBe("READY");
+			expect(await listSubmitIntents(database.db, owner, applicationId)).toEqual([]);
+			expect((await listActiveHolds(database.db, owner)).map((h) => h.scope)).toEqual(["journal"]);
+			expect((await listBrowserRuns(database.db, owner, applicationId))[0]?.status).toBe("ABORTED");
+			// Held: its live runs wait.
+			expect(await browser.dispatch()).toBe(0);
+			await browser.sweep();
+			expect(await listActiveHolds(database.db, owner)).toHaveLength(1);
+		} finally {
+			journal.failing = false;
+		}
+		// The probe finds the journal again and lifts the Hold.
+		await browser.sweep();
+		expect(await listActiveHolds(database.db, owner)).toEqual([]);
+		expect(await browser.dispatch()).toBe(1);
+		await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+		expect(await status(owner, applicationId)).toBe("SUBMITTED");
+		expect(requests).toHaveLength(2);
+	});
+
+	it("never submits for the canary User, nor while a recovery marker is in place", async () => {
+		const canary = await liveApplication();
+		await database.db.execute(sql`update "user" set canary = true where id = ${canary.owner}`);
+		const { runner, requests } = liveRunner("confirmed");
+		const browser = pipeline(runner);
+		expect(await browser.dispatch()).toBe(0);
+		await database.db.execute(sql`update "user" set canary = false where id = ${canary.owner}`);
+
+		marker.restoring = true;
+		try {
+			expect(await browser.dispatch()).toBe(0);
+			// A run already dispatched is refused at the boundary itself.
+			marker.restoring = false;
+			expect(await browser.dispatch()).toBe(1);
+			marker.restoring = true;
+			await browser.runBrowser(canary.owner, (await queuedRun(canary.applicationId)).browserRunId);
+		} finally {
+			marker.restoring = false;
+		}
+		expect(requests).toHaveLength(1);
+		expect(await status(canary.owner, canary.applicationId)).toBe("READY");
+		expect(await listSubmitIntents(database.db, canary.owner, canary.applicationId)).toEqual([]);
 	});
 });

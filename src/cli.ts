@@ -9,12 +9,14 @@ import { createUser, resetPassword, UserError } from "./packages/users/index";
 // host as `ops/run <command>`, or `pnpm cli <command>` in a checkout. The password is
 // read from stdin, never argv, so it stays out of shell history and the process list.
 const USAGE = `usage:
-  user:create --email <email> --name <name>      password from stdin (prompted twice on a terminal)
+  user:create --email <email> --name <name> [--canary]
+                                                 password from stdin (prompted twice on a terminal);
+                                                 --canary: the canary User, never submitted for
   user:reset-password --email <email>            password from stdin; signs out every session`;
 
 const { positionals, values } = parseArgs({
 	allowPositionals: true,
-	options: { email: { type: "string" }, name: { type: "string" } },
+	options: { email: { type: "string" }, name: { type: "string" }, canary: { type: "boolean" } },
 });
 const [command] = positionals;
 
@@ -65,7 +67,12 @@ try {
 	const password = await readPassword();
 	if (command === "user:create") {
 		const userId = await database.db.transaction(async (tx) => {
-			const id = await createUser(tx, { email: values.email ?? "", name: values.name ?? "", password });
+			const id = await createUser(tx, {
+				email: values.email ?? "",
+				name: values.name ?? "",
+				password,
+				canary: values.canary ?? false,
+			});
 			await createCandidate(tx, id);
 			return id;
 		});

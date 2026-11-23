@@ -12,4 +12,5 @@ export type {
 	RunEventSink,
 	RunInput,
 	RunOutcome,
+	SubmitGate,
 } from "./lib/types";

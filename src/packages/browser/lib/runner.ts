@@ -3,7 +3,7 @@ import { type Browser, type BrowserContext, chromium, errors, type Page } from "
 import { capture } from "./evidence";
 import { greenhouseDriver } from "./greenhouse";
 import { blockedSubmissions, blockFormSubmission } from "./guard";
-import type { Driver, PackagePort, RunEventSink, RunMode, RunOutcome } from "./types";
+import type { Driver, PackagePort, RunEventSink, RunMode, RunOutcome, SubmitGate } from "./types";
 
 export type RunRequest = {
 	/** The posting's apply URL, from the Job Snapshot. */
@@ -11,6 +11,8 @@ export type RunRequest = {
 	mode: RunMode;
 	package: PackagePort;
 	events: RunEventSink;
+	/** The submit boundary; a live run crosses it before its one final click. */
+	gate: SubmitGate;
 	/** Aborts the run: the wall-clock limit, a lost heartbeat, or shutdown. */
 	signal: AbortSignal;
 };
@@ -30,8 +32,15 @@ const DRIVERS: readonly Driver[] = [greenhouseDriver];
  * no debugging port exists for the egress block to have to cover. `onContext` lets tests replay
  * recorded pages in each run's context.
  */
+/** How long a page has to show its confirmation after the final click (§10); tune on live runs (§21). */
+const CONFIRMATION_TIMEOUT_MS = 45_000;
+
 export function createBrowserRunner(
-	options: { headless?: boolean; onContext?: (context: BrowserContext) => Promise<unknown> } = {},
+	options: {
+		headless?: boolean;
+		onContext?: (context: BrowserContext) => Promise<unknown>;
+		confirmationTimeoutMs?: number;
+	} = {},
 ): BrowserRunner {
 	let launched: Promise<Browser> | null = null;
 	const browser = () => {
@@ -55,8 +64,16 @@ export function createBrowserRunner(
 
 	return {
 		async run(request) {
-			if (request.mode !== "dry") throw new Error("only Dry Runs run until SubmitGate lands");
+			if (request.mode === "refill_and_submit") throw new Error("refill_and_submit arrives with Review (TB3)");
 			const { events, signal } = request;
+			// Set once the run has crossed the submit boundary: from then on nothing is a failure to retry.
+			let crossed = false;
+			const gate: SubmitGate = {
+				async cross(fields) {
+					crossed = await request.gate.cross(fields);
+					return crossed;
+				},
+			};
 			let context: BrowserContext | null = null;
 			let page: Page | null = null;
 			let instance: Browser | null = null;
@@ -101,12 +118,24 @@ export function createBrowserRunner(
 						fields: [],
 					};
 				}
-				const outcome = await driver.run({ page, mode: request.mode, package: request.package, events, signal });
+				const outcome = await driver.run({
+					page,
+					mode: request.mode,
+					package: request.package,
+					events,
+					gate,
+					signal,
+					confirmationTimeoutMs: options.confirmationTimeoutMs ?? CONFIRMATION_TIMEOUT_MS,
+				});
 				const attempts = await blockedSubmissions(page.frames());
 				if (attempts > 0) await events.record({ type: "submit_blocked", attempts });
 				return outcome;
 			} catch (error) {
 				const url = page?.url() ?? null;
+				if (crossed) {
+					const detail = error instanceof Error ? error.name : "error";
+					return { kind: "submit_unknown", detail, url, fields: [] };
+				}
 				if (signal.aborted) {
 					const reason = signal.reason instanceof Error ? signal.reason.message : String(signal.reason);
 					return { kind: "aborted", reason, url, fields: [] };

@@ -1,9 +1,9 @@
 /// <reference lib="dom" />
-import type { BrowserContext, Frame, Page } from "playwright";
+import type { Frame, Page } from "playwright";
 import { capture } from "./evidence";
 import { defaultFillers, type FormAdapter, type FormField, runFormSession } from "./form-session";
-import { type GuardedActions, guardedActions } from "./guard";
-import type { Driver, FieldType, PackagePort } from "./types";
+import { blockWritesUntilSubmit, type GuardedActions, guardedActions } from "./guard";
+import type { Confirmation, Driver, FieldType, PackagePort, RunEventSink } from "./types";
 
 // The Greenhouse adapter (§10): the hosted form and the embed employers put on their own
 // career pages. Only what is site-specific lives here: recognizing the form, its widgets
@@ -176,14 +176,48 @@ function greenhouseForm(frame: Frame, actions: GuardedActions): FormAdapter {
 	};
 }
 
+/** The form's own hosts, where the final submission goes. */
+const FORM_HOSTS = /^https:\/\/(job-boards|boards)(\.eu)?\.greenhouse\.io\//;
+/** Greenhouse's confirmation routes: hosted `/<board>/jobs/<id>/confirmation`, embedded `/embed/job_app/confirmation`. */
+const CONFIRMATION_URL = /\/confirmation(\?|$|\/)/;
+/** The confirmation page's own text (its `confirmation` locale), in English. */
+const CONFIRMATION_TEXT = /thank you for applying|application has been received|we've received your application/i;
+
 /**
- * Defense in depth for a Dry Run (§10): no write reaches the form's own hosts, where the final
- * submission goes. Uploads go to storage elsewhere and still happen (a Dry Run uploads, #19).
+ * Positive confirmation after the final click (§10): Greenhouse navigates the form's frame to
+ * its confirmation route, and that page says it received the application. Both must hold;
+ * anything else is not confirmation. Keeps the text, URL, time, a screenshot and any id shown.
  */
-async function blockFormWrites(context: BrowserContext): Promise<void> {
-	await context.route(/^https:\/\/(job-boards|boards)(\.eu)?\.greenhouse\.io\//, (route) =>
-		route.request().method() === "GET" ? route.fallback() : route.abort("blockedbyclient"),
-	);
+async function detectConfirmation(
+	page: Page,
+	events: RunEventSink,
+	signal: AbortSignal,
+	timeoutMs: number,
+): Promise<Confirmation | null> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline && !signal.aborted) {
+		for (const frame of page.frames()) {
+			if (!CONFIRMATION_URL.test(frame.url()) || !FORM_HOSTS.test(frame.url())) continue;
+			const body = frame.locator(".confirmation, main, body").first();
+			const text = await body.innerText({ timeout: 2_000 }).catch(() => "");
+			if (!CONFIRMATION_TEXT.test(text)) continue;
+			const url = frame.url();
+			await events.record({ type: "confirmation_detected", url });
+			const shot = await body.screenshot({ timeout: 15_000 }).catch(() => null);
+			const screenshot = shot ? await events.evidence("Confirmation", shot) : null;
+			if (screenshot) await events.record({ type: "screenshot", label: "Confirmation", ref: screenshot });
+			const id = /application (?:id|number|#)\s*[:#]?\s*([A-Za-z0-9-]{4,})/i.exec(text)?.[1] ?? null;
+			return {
+				text: text.replace(/\s+/g, " ").trim().slice(0, 2000),
+				url,
+				at: new Date().toISOString(),
+				screenshot,
+				applicationId: id,
+			};
+		}
+		await page.waitForTimeout(500);
+	}
+	return null;
 }
 
 const documentPaths = (documents: PackagePort["documents"]) =>
@@ -197,8 +231,10 @@ export const greenhouseDriver: Driver = {
 		const frame = await formFrame(page);
 		if (!frame) return { kind: "failed", category: "SITE_CHANGED", detail: "no form", url: page.url(), fields: [] };
 		await events.record({ type: "driver_selected", driver: "greenhouse", embedded: frame !== page.mainFrame() });
-		if (input.mode === "dry") await blockFormWrites(page.context());
-		const actions = guardedActions(events, documentPaths(input.package.documents));
+		// No write reaches the form's hosts before the boundary; in a Dry Run, never.
+		await blockWritesUntilSubmit(page.context(), FORM_HOSTS);
+		const live = input.mode === "live";
+		const actions = guardedActions(events, documentPaths(input.package.documents), live ? input.gate : null);
 		await capture(page, events, "Form opened", frame.locator(FORM));
 		const result = await runFormSession({
 			adapter: greenhouseForm(frame, actions),
@@ -211,7 +247,34 @@ export const greenhouseDriver: Driver = {
 			await events.record({ type: "failed", category: result.failure.category });
 			return { kind: "failed", ...result.failure, url: page.url(), fields: result.fields };
 		}
-		await events.record({ type: "stopped_before_submit" });
-		return { kind: "dry_run_complete", url: page.url(), fields: result.fields };
+		if (!live) {
+			await events.record({ type: "stopped_before_submit" });
+			return { kind: "dry_run_complete", url: page.url(), fields: result.fields };
+		}
+		const button = frame.locator(`${FORM} button[type=submit]`);
+		if ((await button.count()) !== 1) {
+			await events.record({ type: "failed", category: "SITE_CHANGED" });
+			return {
+				kind: "failed",
+				category: "SITE_CHANGED",
+				detail: "no submit button",
+				url: page.url(),
+				fields: result.fields,
+			};
+		}
+		// Refused at the boundary: nothing was clicked, the run stays before it.
+		if (!(await actions.submit(button, result.fields)))
+			return { kind: "aborted", reason: "submit refused", url: page.url(), fields: result.fields };
+		// Past the boundary: anything that throws from here is an Uncertain Submission.
+		try {
+			const confirmation = await detectConfirmation(page, events, signal, input.confirmationTimeoutMs);
+			if (confirmation) return { kind: "submitted", confirmation, url: confirmation.url, fields: result.fields };
+			await capture(page, events, "After submit");
+			await events.record({ type: "no_confirmation", detail: "no confirmation page" });
+			return { kind: "submit_unknown", detail: "no confirmation page", url: page.url(), fields: result.fields };
+		} catch (error) {
+			const detail = error instanceof Error ? error.name : "error";
+			return { kind: "submit_unknown", detail, url: page.url(), fields: result.fields };
+		}
 	},
 };

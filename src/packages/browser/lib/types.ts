@@ -1,11 +1,18 @@
 import type { Page } from "playwright";
-import type { FailureCategory, FieldRecord, RunEvent, RunMode } from "../../applications/index";
+import type { Confirmation, FailureCategory, FieldRecord, RunEvent, RunMode } from "../../applications/index";
 import type { ApplicationQuestion } from "../../discovery/index";
 import type { ApplicationAnswer } from "../../generation/index";
 
 // The Browser Run's record (modes, events, the field ledger, failure categories) is the
 // `applications` module's: it stores them on the `browser_run` row.
-export type { FailureCategory, FieldRecord, FieldType, RunEvent, RunMode } from "../../applications/index";
+export type {
+	Confirmation,
+	FailureCategory,
+	FieldRecord,
+	FieldType,
+	RunEvent,
+	RunMode,
+} from "../../applications/index";
 
 /** Where a Browser Run's events and evidence go: the `browser_run` row (§10). */
 export type RunEventSink = {
@@ -27,17 +34,36 @@ export type PackagePort = {
 	documents: { resume: PackageFile | null; coverLetter: PackageFile | null };
 };
 
+/**
+ * The submit boundary (§5, §10): the journal entry, then the boundary transaction. True: the
+ * run may perform the final click now, once. False: refused before the boundary (a journal
+ * Hold, the launch gate, the recovery marker, the canary User); stop without submitting.
+ * Only `live` runs ask; a Dry Run never does.
+ */
+export type SubmitGate = {
+	/** `fields`: the form as the run leaves it before the final click, frozen with the Package revision. */
+	cross(fields: FieldRecord[]): Promise<boolean>;
+};
+
 export type RunInput = {
 	page: Page;
 	mode: RunMode;
 	package: PackagePort;
 	events: RunEventSink;
+	gate: SubmitGate;
 	signal: AbortSignal;
+	/** How long the page has to confirm after the final click. */
+	confirmationTimeoutMs: number;
 };
 
-/** The Browser Run's result (§10), not an Application state. Submitted and Review-ready arrive with TB1-14 and TB3. */
+/**
+ * The Browser Run's result (§10), not an Application state. After the final click only a
+ * positive confirmation is `submitted`; anything else is `submit_unknown`. Review-ready is TB3's.
+ */
 export type RunOutcome =
 	| { kind: "dry_run_complete"; url: string; fields: FieldRecord[] }
+	| { kind: "submitted"; confirmation: Confirmation; url: string; fields: FieldRecord[] }
+	| { kind: "submit_unknown"; detail: string; url: string | null; fields: FieldRecord[] }
 	| { kind: "failed"; category: FailureCategory; detail: string; url: string | null; fields: FieldRecord[] }
 	| { kind: "aborted"; reason: string; url: string | null; fields: FieldRecord[] };
 

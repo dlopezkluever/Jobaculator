@@ -212,34 +212,49 @@ const MODES = [
 	{
 		id: "LIVE",
 		name: "Live",
-		hint: "Submit applications. Stays off until backups are restored in a drill and the submission journal is activated.",
+		hint: "Submit applications once they are ready, and count each confirmed submission.",
 	},
 ] as const;
 
 /** The global submission mode (§5). A Hunt can override it, and a single run can be asked for by hand. */
 function SubmissionModeCard() {
+	const queryClient = useQueryClient();
 	const status = useQuery(trpc.system.status.queryOptions());
+	const setMode = useMutation(
+		trpc.system.setMode.mutationOptions({
+			onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.system.status.queryKey() }),
+		}),
+	);
 	const mode = status.data?.mode;
+	const gateOpen = status.data?.launchGateOpen ?? false;
 	return (
 		<Card>
 			<CardHeader>
 				<CardTitle>Submission mode</CardTitle>
 				<CardDescription>What the browser does with an Application once it is ready.</CardDescription>
 			</CardHeader>
-			<CardContent>
+			<CardContent className="space-y-2">
 				<fieldset className="space-y-2" aria-label="Submission mode">
 					{MODES.map((m) => {
-						const live = m.id === "LIVE";
+						const disabled = (m.id === "LIVE" && !gateOpen) || setMode.isPending || mode === undefined;
 						return (
 							<label
 								key={m.id}
 								className={cn(
 									"flex items-start gap-3 rounded-md border p-3",
 									mode === m.id && "border-primary bg-primary/5",
-									live && "cursor-not-allowed opacity-60",
+									disabled ? "cursor-not-allowed" : "cursor-pointer",
+									m.id === "LIVE" && !gateOpen && "opacity-60",
 								)}
 							>
-								<input type="radio" name="mode" className="mt-1" checked={mode === m.id} disabled={live} readOnly />
+								<input
+									type="radio"
+									name="mode"
+									className="mt-1"
+									checked={mode === m.id}
+									disabled={disabled}
+									onChange={() => setMode.mutate({ mode: m.id })}
+								/>
 								<span>
 									<span className="block text-sm font-medium">{m.name}</span>
 									<span className="block text-sm text-muted-foreground">{m.hint}</span>
@@ -248,6 +263,16 @@ function SubmissionModeCard() {
 						);
 					})}
 				</fieldset>
+				{!gateOpen && (
+					<p className="text-xs text-muted-foreground">
+						Live stays off until backups are restored in a drill and the submission journal is activated.
+					</p>
+				)}
+				{setMode.isError && (
+					<p role="alert" className="text-sm text-destructive">
+						{setMode.error.message}
+					</p>
+				)}
 			</CardContent>
 		</Card>
 	);

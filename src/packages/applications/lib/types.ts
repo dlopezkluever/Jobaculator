@@ -1,3 +1,4 @@
+import type { ApplicationAnswer, JobSnapshot } from "../../generation/index";
 import type { Decision, DecisiveReason, DimensionJudgement } from "../../matching/index";
 
 /** Application events are recorded against this subject type; read them with `listEvents`. */
@@ -63,7 +64,7 @@ export type PreparationFailure = { fingerprint: string; errorClass: string; coun
 
 // ——— Browser Runs (§10, #17) ———
 
-/** §5: what a Browser Run is for. Only Dry Runs are dispatched until SubmitGate lands (TB1-14). */
+/** §5: what a Browser Run is for. `refill_and_submit` arrives with Review (TB3). */
 export const RUN_MODES = ["dry", "live", "refill_and_submit"] as const;
 export type RunMode = (typeof RUN_MODES)[number];
 
@@ -122,9 +123,42 @@ export type RunEvent =
 	| { type: "verified"; fields: number; required: number; missing: number }
 	| { type: "submit_blocked"; attempts: number }
 	| { type: "stopped_before_submit" }
+	| { type: "submit_refused" }
+	| { type: "submit_clicked" }
+	| { type: "confirmation_detected"; url: string }
+	| { type: "no_confirmation"; detail: string }
 	| { type: "failed"; category: FailureCategory };
 export type StoredRunEvent = RunEvent & { at: string };
 
 /** Where a Browser Run stopped (§11): the page, the field ledger and the Package files it uploaded. */
 export type RunCheckpoint = { url: string | null; fields: FieldRecord[]; uploads: { key: string; blob: string }[] };
 export type RunFailure = { category: FailureCategory; detail: string };
+
+/** The positive confirmation a submission is recorded on (§10, §13: permanent evidence). */
+export type Confirmation = {
+	/** The confirmation the page showed, as text. */
+	text: string;
+	url: string;
+	at: string;
+	/** Evidence ref of the confirmation page's screenshot. */
+	screenshot: string | null;
+	/** An application id the page showed, if any. */
+	applicationId: string | null;
+};
+
+/** OPEN: past the boundary, outcome not recorded. UNKNOWN: an Uncertain Submission, still open until the Candidate resolves it. */
+export const SUBMIT_INTENT_STATUSES = ["OPEN", "SUBMITTED", "UNKNOWN", "NOT_SUBMITTED"] as const;
+export type SubmitIntentStatus = (typeof SUBMIT_INTENT_STATUSES)[number];
+
+/** The Package as it was submitted (§13), frozen at the boundary: what the employer received. */
+export type PackageRevision = {
+	jobSnapshot: JobSnapshot;
+	answers: ApplicationAnswer[];
+	/** Each uploaded file: its blob and the filename the employer saw. */
+	files: { key: string; blob: string; filename: string }[];
+	/** The fields as the run left them before the final click. */
+	fields: FieldRecord[];
+};
+
+export const INTERVENTION_KINDS = ["SUBMIT_UNKNOWN"] as const;
+export type InterventionKind = (typeof INTERVENTION_KINDS)[number];

@@ -460,6 +460,11 @@ type Run = {
 	fields: FieldRecord[];
 	createdAt: string;
 	finishedAt: string | null;
+	submission: {
+		status: string;
+		at: string;
+		confirmation: { text: string; url: string; at: string; applicationId: string | null } | null;
+	} | null;
 	events: ({ type: string; at: string } & Record<string, unknown>)[];
 };
 
@@ -469,6 +474,13 @@ const RUN_STATUS: Record<string, string> = {
 	COMPLETED: "Finished, stopped before submitting",
 	FAILED: "Failed",
 	ABORTED: "Stopped early",
+};
+
+const SUBMISSION_STATUS: Record<string, string> = {
+	OPEN: "Submitting",
+	SUBMITTED: "Submitted, confirmed",
+	UNKNOWN: "Uncertain Submission",
+	NOT_SUBMITTED: "Not submitted",
 };
 
 /** One line per compact run event: what the browser did, in order. */
@@ -492,6 +504,14 @@ function stepCopy(e: Run["events"][number]): string | null {
 			return `Blocked ${e.attempts} attempt(s) by the page to submit`;
 		case "stopped_before_submit":
 			return "Stopped before submitting (Dry Run)";
+		case "submit_refused":
+			return "Did not submit: the submit boundary refused (nothing was clicked)";
+		case "submit_clicked":
+			return "Crossed the submit boundary and clicked submit";
+		case "confirmation_detected":
+			return "Saw the employer's confirmation page";
+		case "no_confirmation":
+			return "No confirmation after submitting: uncertain";
 		case "failed":
 			return `Failed: ${e.category}`;
 		default:
@@ -512,7 +532,7 @@ function ExecutionTab(props: { applicationId: string; status: string; runs: Run[
 				<p className="text-sm text-muted-foreground">
 					{props.runs.length === 0
 						? "No Browser Run yet. A ready Application is Dry Run when the browser is free."
-						: "A Dry Run fills in everything and stops before submitting. The values are what the form showed, not the request it would send."}
+						: "A Dry Run fills in everything and stops before submitting; a live run submits once, after crossing the submit boundary. The values are what the form showed, not the request it sent."}
 				</p>
 				{ready && props.runs.length > 0 && (
 					<Button
@@ -536,20 +556,42 @@ function RunCard({ applicationId, run, latest }: { applicationId: string; run: R
 	const shots = run.events.filter((e) => e.type === "screenshot");
 	const steps = run.events.flatMap((e) => {
 		const copy = stepCopy(e);
-		return copy ? [{ at: e.at, copy, bad: e.type === "failed" || e.type === "action_refused" }] : [];
+		const bad = e.type === "failed" || e.type === "action_refused" || e.type === "no_confirmation";
+		return copy ? [{ at: e.at, copy, bad }] : [];
 	});
+	const status = run.submission
+		? SUBMISSION_STATUS[run.submission.status]
+		: run.mode === "live" && run.status === "COMPLETED"
+			? "Finished"
+			: RUN_STATUS[run.status];
 	return (
 		<Card>
 			<CardHeader>
 				<CardTitle>
-					{run.mode === "dry" ? "Dry Run" : "Browser Run"} · {time.format(new Date(run.createdAt))}
+					{run.mode === "dry" ? "Dry Run" : "Live run"} · {time.format(new Date(run.createdAt))}
 				</CardTitle>
 				<CardDescription>
-					{RUN_STATUS[run.status] ?? run.status}
-					{run.failure && ` (${run.failure.category}: ${run.failure.detail})`}
+					{status ?? run.status}
+					{run.failure && !run.submission && ` (${run.failure.category}: ${run.failure.detail})`}
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-5 text-sm">
+				{run.submission?.confirmation && (
+					<div role="status" className="space-y-1 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+						<p className="font-medium">Confirmation: {run.submission.confirmation.text}</p>
+						<p className="text-xs text-muted-foreground">
+							{new Date(run.submission.confirmation.at).toLocaleString()} · {run.submission.confirmation.url}
+							{run.submission.confirmation.applicationId &&
+								` · Application id ${run.submission.confirmation.applicationId}`}
+						</p>
+					</div>
+				)}
+				{run.submission?.status === "UNKNOWN" && (
+					<p role="status" className="rounded-md bg-warning px-3 py-2 text-warning-foreground">
+						Submit was clicked but no confirmation was seen. It is never retried by itself and does not count until you
+						say whether it went through.
+					</p>
+				)}
 				{steps.length > 0 && (
 					<ol className="space-y-1">
 						{steps.map((s, i) => (
