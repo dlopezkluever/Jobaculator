@@ -58,6 +58,22 @@ export const answersWritten = defineEvent({
 		),
 	}),
 });
+/** Answers a Browser Run generated for questions it found on the live form (§9 mid-run generation). */
+export const answersAdded = defineEvent({
+	code: "answers_added",
+	subject: APPLICATION_SUBJECT,
+	payload: z.object({
+		browserRunId: z.uuid(),
+		callId: z.uuid().nullable(),
+		questions: z.int(),
+		escalations: z.array(
+			z.object({
+				questionId: z.string(),
+				escalation: z.enum(["AUTHORITATIVE_FACT_REQUIRED", "ASSESSMENT_REQUIRED"]),
+			}),
+		),
+	}),
+});
 /** Paid retries stopped after the same AI failure repeated; resumes when the User's AI setup changes. */
 export const preparationSuspended = defineEvent({
 	code: "preparation_suspended",
@@ -235,6 +251,41 @@ export async function saveAnswers(
 		),
 	});
 	return true;
+}
+
+/**
+ * Adds answers to questions the Package has none for, as a Browser Run discovers them (§10):
+ * the Package answers each question once, so answers it already has stay as they are.
+ * Returns the answers it added.
+ */
+export async function addAnswers(
+	tx: Tx,
+	owner: UserId,
+	applicationId: string,
+	added: { browserRunId: string; callId: string | null; answers: ApplicationAnswer[] },
+): Promise<ApplicationAnswer[]> {
+	const [row] = await tx
+		.select({ answers: applicationPackage.answers })
+		.from(applicationPackage)
+		.where(owned(owner, applicationId))
+		.for("update");
+	if (!row) throw new Error("the Package is missing");
+	const known = new Set((row.answers ?? []).map((a) => a.question.id));
+	const fresh = added.answers.filter((a) => !known.has(a.question.id));
+	if (fresh.length === 0) return [];
+	await tx
+		.update(applicationPackage)
+		.set({ answers: [...(row.answers ?? []), ...fresh], updatedAt: new Date() })
+		.where(owned(owner, applicationId));
+	await appendEvent(tx, owner, answersAdded, applicationId, {
+		browserRunId: added.browserRunId,
+		callId: added.callId,
+		questions: fresh.length,
+		escalations: fresh.flatMap((a) =>
+			a.escalation ? [{ questionId: a.question.id, escalation: a.escalation satisfies Escalation }] : [],
+		),
+	});
+	return fresh;
 }
 
 /**

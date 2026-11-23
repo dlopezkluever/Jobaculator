@@ -1,6 +1,12 @@
 import { index, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { user } from "../../users/tables";
-import { CREATIVE_LATITUDES, HUNT_STATUSES, type HuntCriteria, SUBMISSION_POLICIES } from "../criteria";
+import {
+	CREATIVE_LATITUDES,
+	HUNT_STATUSES,
+	type HuntCriteria,
+	SUBMISSION_MODES,
+	SUBMISSION_POLICIES,
+} from "../criteria";
 
 /** A persistent search for one kind of role. Criteria are validated by `huntCriteriaSchema` before every write. */
 export const hunt = pgTable(
@@ -15,6 +21,8 @@ export const hunt = pgTable(
 		criteria: jsonb("criteria").$type<HuntCriteria>().notNull(),
 		creativeLatitude: text("creative_latitude", { enum: CREATIVE_LATITUDES }).notNull(),
 		submissionPolicy: text("submission_policy", { enum: SUBMISSION_POLICIES }).notNull().default("AUTO"),
+		/** Overrides the global submission mode for the Hunt's Applications; null follows it (§5). */
+		submissionMode: text("submission_mode", { enum: SUBMISSION_MODES }),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	},

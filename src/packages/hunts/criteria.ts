@@ -25,6 +25,16 @@ export const SUBMISSION_POLICIES = ["AUTO"] as const;
 export type SubmissionPolicy = (typeof SUBMISSION_POLICIES)[number];
 
 /** Used when a Hunt sets no override: a posting's genuinely required years may be up to 2× the Candidate's. */
+/**
+ * Whether a Browser Run submits (§5). Effective mode = the Candidate's choice for one run >
+ * the Driving Hunt's > the global setting; the agent never picks live itself. Dry Run fills
+ * everything and stops before submitting.
+ */
+export const SUBMISSION_MODES = ["DRY_RUN", "LIVE"] as const;
+export type SubmissionMode = (typeof SUBMISSION_MODES)[number];
+/** Live stays refused system-wide until the launch gate is recorded (§17, TB1-14). */
+export const LIVE_REFUSED = "Live submission stays off until the launch gate (restore drill and journal) is recorded";
+
 export const DEFAULT_EXPERIENCE_STRETCH = 2;
 
 const phrases = z
@@ -91,6 +101,12 @@ export const huntInputSchema = z.object({
 	criteria: huntCriteriaSchema,
 	creativeLatitude: z.enum(CREATIVE_LATITUDES).default(DEFAULT_CREATIVE_LATITUDE),
 	submissionPolicy: z.enum(SUBMISSION_POLICIES).default("AUTO"),
+	/** Null follows the global setting. */
+	submissionMode: z
+		.enum(SUBMISSION_MODES)
+		.nullable()
+		.default(null)
+		.refine((mode) => mode !== "LIVE", LIVE_REFUSED),
 });
 export type HuntInput = z.input<typeof huntInputSchema>;
 

@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
-import { getPackage } from "../packages/applications/index";
+import { browserRunEvidence, getPackage } from "../packages/applications/index";
 import { addDocument, DOCUMENT_LIMITS, DocumentError } from "../packages/candidate/index";
 import type { Logger } from "../packages/log/index";
 import { AUTH_BASE_PATH, type Users } from "../packages/users/index";
@@ -13,6 +13,7 @@ import { appRouter } from "./router";
 import type { Services } from "./trpc";
 
 const TRPC_ENDPOINT = "/api/trpc";
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -116,6 +117,24 @@ export function createApp(
 			"Content-Disposition": `attachment; filename="resume.pdf"; filename*=UTF-8''${encodeURIComponent(`${name} Resume.pdf`)}`,
 			"X-Content-Type-Options": "nosniff",
 			"Cache-Control": "private, no-store",
+		});
+	});
+	// A Browser Run's screenshot (§10), by its index among the run's screenshots. Served only
+	// when its bytes are a PNG (§14: an image allowlist, never SVG or HTML).
+	app.get("/api/applications/:id/runs/:runId/screenshots/:index", async (c) => {
+		const session = await users.getSession(c.req.raw);
+		if (!session) return c.json({ error: "unauthorized" }, 401);
+		const { id, runId, index } = c.req.param();
+		const hash =
+			UUID.test(id) && UUID.test(runId) && /^\d{1,4}$/.test(index)
+				? await browserRunEvidence(db, session.userId, id, runId, Number(index))
+				: null;
+		const bytes = hash ? await storage.get(hash) : null;
+		if (!bytes?.subarray(0, 8).equals(PNG_SIGNATURE)) return c.json({ error: "not found" }, 404);
+		return c.body(new Uint8Array(bytes), 200, {
+			"Content-Type": "image/png",
+			"X-Content-Type-Options": "nosniff",
+			"Cache-Control": "private, max-age=86400, immutable",
 		});
 	});
 	app.all("/api/*", (c) => c.json({ error: "not found" }, 404));

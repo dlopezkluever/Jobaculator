@@ -1,10 +1,12 @@
 import { createLlmClient, purgeExpiredPayloads } from "./packages/ai/index";
+import { createBrowserRunner } from "./packages/browser/index";
 import { EXTRACT_DOCUMENT, extractDocument } from "./packages/candidate/index";
 import { loadConfig } from "./packages/config/index";
 import { createDatabase, trySessionLock } from "./packages/db/index";
 import { createGreenhouseAdapter, createSourceHttp } from "./packages/discovery/index";
 import { createJobs, WORKER_LOCK_KEY } from "./packages/jobs/index";
 import { createLogger } from "./packages/log/index";
+import { browserRunQueue, createBrowserPipeline } from "./packages/pipeline/browser";
 import {
 	createApplicationPipeline,
 	createDiscoveryPipeline,
@@ -38,15 +40,16 @@ if (!lock) {
 	process.exit(1);
 }
 
-// Extraction (2), discover (2), ingest (4), evaluate (4), decide (2) and prepare (2) consumers share this pool with the ticks.
-const database = createDatabase(config.databaseUrl, { max: 19 });
+// Extraction (2), discover (2), ingest (4), evaluate (4), decide (2), prepare (2) and browser_run (1)
+// consumers share this pool with the ticks and the run's heartbeat.
+const database = createDatabase(config.databaseUrl, { max: 21 });
 const secrets = createSecrets([{ version: 1, key: config.masterKey }]);
 const storage = createStorage(config.dataDir);
 const llm = createLlmClient({ db: database.db, secrets, log });
 
 const jobs = createJobs({
 	databaseUrl: config.databaseUrl,
-	queues: [EXTRACT_DOCUMENT, ...PIPELINE_QUEUES],
+	queues: [EXTRACT_DOCUMENT, ...PIPELINE_QUEUES, browserRunQueue],
 	onError: (error) => log.error({ err: error, event: "jobs_error" }),
 });
 await jobs.start();
@@ -65,6 +68,10 @@ await createMatchingPipeline({ db: database.db, jobs, llm, log }).work();
 const applications = createApplicationPipeline({ db: database.db, jobs, log });
 await applications.work();
 await createPreparationPipeline({ db: database.db, jobs, llm, storage, adapters, log }).work();
+// The one browser (§17), launched on the first Browser Run.
+const runner = createBrowserRunner();
+const browser = createBrowserPipeline({ db: database.db, jobs, llm, storage, adapters, runner, log });
+await browser.work();
 async function discoveryTick() {
 	try {
 		const sent = await discovery.tick();
@@ -79,6 +86,7 @@ const discoveryTimer = setInterval(() => void discoveryTick(), DISCOVERY_TICK_MS
 async function dispatchTick() {
 	try {
 		await applications.dispatch();
+		await browser.dispatch();
 	} catch (error) {
 		log.error({ err: error, event: "dispatch_tick_failed" });
 	}
@@ -87,7 +95,7 @@ void dispatchTick();
 const dispatchTimer = setInterval(() => void dispatchTick(), DISPATCH_TICK_MS);
 async function sweep() {
 	try {
-		const swept = await applications.sweep();
+		const swept = { ...(await applications.sweep()), ...(await browser.sweep()) };
 		if (Object.values(swept).some((n) => n > 0)) log.info({ event: "pipeline_swept", ...swept });
 	} catch (error) {
 		log.error({ err: error, event: "sweep_failed" });
@@ -118,6 +126,7 @@ async function shutdown(signal: string) {
 	clearInterval(dispatchTimer);
 	clearInterval(sweepTimer);
 	await jobs.stop({ timeoutMs: SHUTDOWN_GRACE_MS });
+	await runner.close();
 	await database.close();
 	await lock?.release();
 	log.info({ event: "worker_stopped" });

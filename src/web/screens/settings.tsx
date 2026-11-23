@@ -18,7 +18,7 @@ const PRESETS = [
 	{ id: "best", name: "Best", hint: "Strongest models for writing and judgement." },
 ] as const;
 
-/** Settings → AI keys and spend (§12). Keys are write-only: only their last 4 characters ever come back. */
+/** Settings → submission mode (§5), AI keys and spend (§12). Keys are write-only: only their last 4 characters ever come back. */
 export function SettingsScreen() {
 	const settings = useQuery(trpc.ai.settings.queryOptions());
 	const data = settings.data;
@@ -26,6 +26,7 @@ export function SettingsScreen() {
 	return (
 		<div className="max-w-3xl space-y-8">
 			<h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+			<SubmissionModeCard />
 			<Card>
 				<CardHeader>
 					<CardTitle>AI provider keys</CardTitle>
@@ -197,6 +198,56 @@ function SpendCard({
 						</p>
 					)}
 				</form>
+			</CardContent>
+		</Card>
+	);
+}
+
+const MODES = [
+	{
+		id: "DRY_RUN",
+		name: "Dry Run",
+		hint: "Fill in every application completely, upload the resume, and stop before submitting. Each one is Dry Run once; you can ask for another from its Execution tab.",
+	},
+	{
+		id: "LIVE",
+		name: "Live",
+		hint: "Submit applications. Stays off until backups are restored in a drill and the submission journal is activated.",
+	},
+] as const;
+
+/** The global submission mode (§5). A Hunt can override it, and a single run can be asked for by hand. */
+function SubmissionModeCard() {
+	const status = useQuery(trpc.system.status.queryOptions());
+	const mode = status.data?.mode;
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>Submission mode</CardTitle>
+				<CardDescription>What the browser does with an Application once it is ready.</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<fieldset className="space-y-2" aria-label="Submission mode">
+					{MODES.map((m) => {
+						const live = m.id === "LIVE";
+						return (
+							<label
+								key={m.id}
+								className={cn(
+									"flex items-start gap-3 rounded-md border p-3",
+									mode === m.id && "border-primary bg-primary/5",
+									live && "cursor-not-allowed opacity-60",
+								)}
+							>
+								<input type="radio" name="mode" className="mt-1" checked={mode === m.id} disabled={live} readOnly />
+								<span>
+									<span className="block text-sm font-medium">{m.name}</span>
+									<span className="block text-sm text-muted-foreground">{m.hint}</span>
+								</span>
+							</label>
+						);
+					})}
+				</fieldset>
 			</CardContent>
 		</Card>
 	);

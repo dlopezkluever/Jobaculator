@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
 import { Briefcase, FileText, Inbox, LayoutDashboard, LogOut, Plus, Settings, Target, UserRound } from "lucide-react";
 import type * as React from "react";
-import type { SubmissionMode } from "../api/router";
+import type { SubmissionMode } from "../packages/hunts/criteria";
 import { Button } from "./components/ui/button";
 import { sessionQuery, signOut } from "./lib/session";
 import { trpc } from "./lib/trpc";

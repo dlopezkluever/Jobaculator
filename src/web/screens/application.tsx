@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { Download } from "lucide-react";
 import { Tabs } from "radix-ui";
+import type { FieldRecord } from "../../packages/applications/index";
 import type { ApplicationAnswer, QuestionClass, ResumeDocument, Strategy } from "../../packages/generation/index";
 import { TIER_LABELS } from "../../packages/hunts/criteria";
 import type { DecisiveReason, DimensionJudgement } from "../../packages/matching/index";
@@ -29,7 +30,7 @@ const DIMENSION_LABELS: Record<DimensionJudgement["dimension"], string> = {
 	experience: "Experience",
 };
 
-/** Application detail (§16): Why, Job Snapshot, Resume and Answers; Cover letter and Execution follow. */
+/** Application detail (§16): Why, Job Snapshot, Resume, Answers and Execution; Cover letter follows. */
 export function ApplicationScreen() {
 	const { applicationId } = useParams({ from: "/app/applications/$applicationId" });
 	const query = useQuery({ ...trpc.applications.get.queryOptions({ id: applicationId }), refetchInterval: POLL_MS });
@@ -77,6 +78,7 @@ export function ApplicationScreen() {
 					<Tab value="snapshot" label="Job Snapshot" />
 					<Tab value="resume" label="Resume" />
 					<Tab value="answers" label="Answers" />
+					<Tab value="execution" label="Execution" />
 				</Tabs.List>
 				<Tabs.Content value="why" className="space-y-5">
 					<MatchCard evaluation={a.evaluation} />
@@ -94,6 +96,9 @@ export function ApplicationScreen() {
 				</Tabs.Content>
 				<Tabs.Content value="answers">
 					{pkg?.answers ? <AnswersCard answers={pkg.answers} /> : <Pending what="The answers" />}
+				</Tabs.Content>
+				<Tabs.Content value="execution" className="space-y-5">
+					<ExecutionTab applicationId={a.id} status={a.status} runs={a.runs} />
 				</Tabs.Content>
 			</Tabs.Root>
 		</div>
@@ -443,5 +448,183 @@ function AnswersCard({ answers }: { answers: (ApplicationAnswer & { sourceLabels
 				</ol>
 			</CardContent>
 		</Card>
+	);
+}
+
+type Run = {
+	id: string;
+	mode: string;
+	status: string;
+	failure: { category: string; detail: string } | null;
+	url: string | null;
+	fields: FieldRecord[];
+	createdAt: string;
+	finishedAt: string | null;
+	events: ({ type: string; at: string } & Record<string, unknown>)[];
+};
+
+const RUN_STATUS: Record<string, string> = {
+	QUEUED: "Waiting for the browser",
+	RUNNING: "Running",
+	COMPLETED: "Finished, stopped before submitting",
+	FAILED: "Failed",
+	ABORTED: "Stopped early",
+};
+
+/** One line per compact run event: what the browser did, in order. */
+function stepCopy(e: Run["events"][number]): string | null {
+	switch (e.type) {
+		case "opened":
+			return `Opened the posting (HTTP ${e.status ?? "?"})`;
+		case "driver_selected":
+			return e.embedded ? "Found the Greenhouse form embedded in the employer's page" : "Found the Greenhouse form";
+		case "fields_discovered":
+			return `Round ${e.round}: ${e.fields} fields on the page, ${e.new} new`;
+		case "answers_generated":
+			return `Round ${e.round}: wrote answers for ${e.questions} questions the Package did not have`;
+		case "fields_filled":
+			return `Round ${e.round}: filled ${e.filled} fields${Number(e.failed) > 0 ? `, ${e.failed} did not take` : ""}`;
+		case "verified":
+			return `Checked every field: ${e.required} required, ${e.missing} missing`;
+		case "action_refused":
+			return `Refused to ${e.action}: ${e.reason}`;
+		case "submit_blocked":
+			return `Blocked ${e.attempts} attempt(s) by the page to submit`;
+		case "stopped_before_submit":
+			return "Stopped before submitting (Dry Run)";
+		case "failed":
+			return `Failed: ${e.category}`;
+		default:
+			return null;
+	}
+}
+
+/** The Execution tab (§16): each Browser Run's steps, screenshots and the values it left on the form. */
+function ExecutionTab(props: { applicationId: string; status: string; runs: Run[] }) {
+	const queryClient = useQueryClient();
+	const dryRun = useMutation(
+		trpc.applications.dryRun.mutationOptions({ onSuccess: () => queryClient.invalidateQueries() }),
+	);
+	const ready = props.status === "READY";
+	return (
+		<>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<p className="text-sm text-muted-foreground">
+					{props.runs.length === 0
+						? "No Browser Run yet. A ready Application is Dry Run when the browser is free."
+						: "A Dry Run fills in everything and stops before submitting. The values are what the form showed, not the request it would send."}
+				</p>
+				{ready && props.runs.length > 0 && (
+					<Button
+						variant="outline"
+						disabled={dryRun.isPending}
+						onClick={() => dryRun.mutate({ id: props.applicationId })}
+					>
+						Dry Run again
+					</Button>
+				)}
+			</div>
+			{dryRun.isSuccess && <p className="text-sm text-muted-foreground">Queued: it runs when the browser is free.</p>}
+			{props.runs.map((run, i) => (
+				<RunCard key={run.id} applicationId={props.applicationId} run={run} latest={i === 0} />
+			))}
+		</>
+	);
+}
+
+function RunCard({ applicationId, run, latest }: { applicationId: string; run: Run; latest: boolean }) {
+	const shots = run.events.filter((e) => e.type === "screenshot");
+	const steps = run.events.flatMap((e) => {
+		const copy = stepCopy(e);
+		return copy ? [{ at: e.at, copy, bad: e.type === "failed" || e.type === "action_refused" }] : [];
+	});
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>
+					{run.mode === "dry" ? "Dry Run" : "Browser Run"} · {time.format(new Date(run.createdAt))}
+				</CardTitle>
+				<CardDescription>
+					{RUN_STATUS[run.status] ?? run.status}
+					{run.failure && ` (${run.failure.category}: ${run.failure.detail})`}
+				</CardDescription>
+			</CardHeader>
+			<CardContent className="space-y-5 text-sm">
+				{steps.length > 0 && (
+					<ol className="space-y-1">
+						{steps.map((s, i) => (
+							// biome-ignore lint/suspicious/noArrayIndexKey: steps are an append-only log
+							<li key={i} className={cn("flex gap-3", s.bad && "text-destructive")}>
+								<span className="w-20 shrink-0 text-muted-foreground tabular-nums">
+									{new Date(s.at).toLocaleTimeString(undefined, {
+										hour: "numeric",
+										minute: "2-digit",
+										second: "2-digit",
+									})}
+								</span>
+								{s.copy}
+							</li>
+						))}
+					</ol>
+				)}
+				{run.fields.length > 0 && <FieldsTable fields={run.fields} />}
+				{latest && shots.length > 0 && (
+					<div className="grid gap-4 sm:grid-cols-2">
+						{shots.map((shot) => (
+							<figure key={String(shot.index)} className="space-y-1">
+								<a
+									href={`/api/applications/${applicationId}/runs/${run.id}/screenshots/${shot.index}`}
+									target="_blank"
+									rel="noreferrer"
+								>
+									<img
+										src={`/api/applications/${applicationId}/runs/${run.id}/screenshots/${shot.index}`}
+										alt={String(shot.label)}
+										className="max-h-96 w-full rounded-md border object-cover object-top"
+									/>
+								</a>
+								<figcaption className="text-xs text-muted-foreground">{String(shot.label)}</figcaption>
+							</figure>
+						))}
+					</div>
+				)}
+			</CardContent>
+		</Card>
+	);
+}
+
+const SOURCE_COPY: Record<FieldRecord["source"], string> = {
+	package: "Package",
+	generated: "Written during the run",
+	document: "Package document",
+	blank: "Left blank",
+};
+
+function FieldsTable({ fields }: { fields: FieldRecord[] }) {
+	return (
+		<table className="w-full text-left">
+			<thead className="text-xs text-muted-foreground">
+				<tr className="border-b">
+					<th className="py-1.5 pr-3 font-medium">Field</th>
+					<th className="py-1.5 pr-3 font-medium">Value on the form</th>
+					<th className="py-1.5 font-medium">From</th>
+				</tr>
+			</thead>
+			<tbody className="divide-y">
+				{fields.map((f) => (
+					<tr key={f.key} className={cn(!f.ok && "text-destructive")}>
+						<td className="py-1.5 pr-3 align-top">
+							{f.label || f.key}
+							{f.required && <span className="text-muted-foreground"> *</span>}
+						</td>
+						<td className="max-w-md py-1.5 pr-3 align-top whitespace-pre-wrap">
+							{f.observed.length > 0 ? f.observed.join(", ") : <span className="text-muted-foreground">Empty</span>}
+							{!f.ok && f.value.length > 0 && <span className="block text-xs">Meant: {f.value.join(", ")}</span>}
+						</td>
+						<td className="py-1.5 align-top text-muted-foreground">{SOURCE_COPY[f.source]}</td>
+					</tr>
+				))}
+			</tbody>
+		</table>
 	);
 }

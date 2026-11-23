@@ -10,6 +10,7 @@ import {
 	type HuntStatus,
 	huntCriteriaSchema,
 	huntInputSchema,
+	type SubmissionMode,
 	type SubmissionPolicy,
 } from "./criteria";
 import { hunt } from "./lib/schema";
@@ -21,12 +22,14 @@ export type Hunt = {
 	criteria: HuntCriteria;
 	creativeLatitude: CreativeLatitude;
 	submissionPolicy: SubmissionPolicy;
+	/** Null follows the global setting. */
+	submissionMode: SubmissionMode | null;
 };
 
 /** Hunt events are recorded against this subject type; read them with `listEvents`. */
 export const HUNT_SUBJECT = "hunt";
 
-const EDITABLE_FIELDS = ["name", "criteria", "creativeLatitude", "submissionPolicy"] as const;
+const EDITABLE_FIELDS = ["name", "criteria", "creativeLatitude", "submissionPolicy", "submissionMode"] as const;
 
 export const huntCreated = defineEvent({ code: "hunt_created", subject: HUNT_SUBJECT, payload: z.object({}) });
 /** Which settings an edit changed; never their values (ADR 0008). A criteria change is a retarget. */
@@ -46,6 +49,7 @@ const columns = {
 	criteria: hunt.criteria,
 	creativeLatitude: hunt.creativeLatitude,
 	submissionPolicy: hunt.submissionPolicy,
+	submissionMode: hunt.submissionMode,
 };
 
 /** Creates an ACTIVE Hunt. Throws a ZodError, writing nothing, when the input is not a valid Hunt. */
