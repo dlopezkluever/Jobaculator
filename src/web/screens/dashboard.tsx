@@ -77,7 +77,15 @@ export function DashboardScreen() {
 				<Card>
 					<CardHeader>
 						<CardTitle>Recent submissions</CardTitle>
-						<CardDescription>Nothing submitted yet.</CardDescription>
+						<CardDescription>
+							{data && data.submitted.allTime > 0 ? (
+								<Link to="/applications" className="hover:underline">
+									See them in Applications.
+								</Link>
+							) : (
+								"Nothing submitted yet."
+							)}
+						</CardDescription>
 					</CardHeader>
 				</Card>
 			</div>

@@ -251,10 +251,19 @@ describe("system status", () => {
 	it("reports Dry Run and whether the worker holds its lock", async () => {
 		const user = client();
 		await user.signIn();
-		expect((await user.query("system.status")).data).toEqual({ mode: "DRY_RUN", workerRunning: false, holds: [] });
+		expect((await user.query("system.status")).data).toEqual({
+			mode: "DRY_RUN",
+			launchGateOpen: false,
+			workerRunning: false,
+			holds: [],
+		});
+		// Live is refused while the launch gate is closed.
+		const live = await user.mutation("/api/trpc/system.setMode", { mode: "LIVE" });
+		expect(live.status).toBe(400);
+		expect(await live.text()).toContain("launch gate");
 		const lock = await trySessionLock(database.url, WORKER_LOCK_KEY, () => {});
 		try {
-			expect((await user.query("system.status")).data).toEqual({ mode: "DRY_RUN", workerRunning: true, holds: [] });
+			expect((await user.query("system.status")).data).toMatchObject({ mode: "DRY_RUN", workerRunning: true });
 		} finally {
 			await lock?.release();
 		}

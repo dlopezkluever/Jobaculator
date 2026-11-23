@@ -1,3 +1,7 @@
 # False positives, by gitleaks fingerprint. Say what each one is.
 # A Greenhouse form field id (question_12497126004) compared with `f.key ===`, read as an API key.
 b95fae4d887d9dbca77904c6b198855f89b4785a:src/packages/browser/tests/greenhouse.test.ts:generic-api-key:132
+# Greenhouse's browser-side keys in the recorded confirmation page's inline config, scrubbed in the next commit.
+18d242bba387fdaaddba11d62cecc0e1209954e8:src/packages/browser/tests/fixtures/greenhouse-confirmation-figma.html:dropbox-api-token:46
+18d242bba387fdaaddba11d62cecc0e1209954e8:src/packages/browser/tests/fixtures/greenhouse-confirmation-figma.html:gcp-api-key:46
+18d242bba387fdaaddba11d62cecc0e1209954e8:src/packages/browser/tests/fixtures/greenhouse-confirmation-figma.html:generic-api-key:46

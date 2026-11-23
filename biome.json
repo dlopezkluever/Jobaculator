@@ -7,7 +7,15 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!.agents", "!.amp", "!drizzle/meta", "!**/*.md", "!skills-lock.json"]
+		"includes": [
+			"**",
+			"!.agents",
+			"!.amp",
+			"!drizzle/meta",
+			"!**/*.md",
+			"!skills-lock.json",
+			"!**/tests/fixtures/*.html"
+		]
 	},
 	"formatter": {
 		"enabled": true,

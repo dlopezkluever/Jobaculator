@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Executor } from "../db/index";
 import type { UserId } from "../db/ownership";
 import { appendEvent, defineEvent } from "../events/index";
+import { assertLiveAllowed } from "../launch/index";
 import {
 	type CreativeLatitude,
 	type HuntCriteria,
@@ -52,10 +53,14 @@ const columns = {
 	submissionMode: hunt.submissionMode,
 };
 
-/** Creates an ACTIVE Hunt. Throws a ZodError, writing nothing, when the input is not a valid Hunt. */
+/**
+ * Creates an ACTIVE Hunt. Throws a ZodError, writing nothing, when the input is not a valid
+ * Hunt, and `LiveRefused` for a Live Hunt while the launch gate is closed (§17).
+ */
 export async function createHunt(exec: Executor, owner: UserId, input: HuntInput): Promise<Hunt> {
 	const values = huntInputSchema.parse(input);
 	return exec.transaction(async (tx) => {
+		if (values.submissionMode === "LIVE") await assertLiveAllowed(tx);
 		const [created] = await tx
 			.insert(hunt)
 			.values({ userId: owner, ...values })
@@ -98,11 +103,13 @@ export async function getHunt(exec: Executor, owner: UserId, id: string): Promis
 
 /**
  * Replaces the Hunt's editable settings. Records which ones changed; an edit that changes
- * nothing writes nothing. Null when the owner has no such Hunt; a ZodError for invalid input.
+ * nothing writes nothing. Null when the owner has no such Hunt; a ZodError for invalid input;
+ * `LiveRefused` for a Live Hunt while the launch gate is closed.
  */
 export async function updateHunt(exec: Executor, owner: UserId, id: string, input: HuntInput): Promise<Hunt | null> {
 	const values = huntInputSchema.parse(input);
 	return exec.transaction(async (tx) => {
+		if (values.submissionMode === "LIVE") await assertLiveAllowed(tx);
 		const [current] = await tx
 			.select(columns)
 			.from(hunt)

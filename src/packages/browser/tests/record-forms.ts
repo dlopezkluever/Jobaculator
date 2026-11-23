@@ -8,6 +8,11 @@ import { RECORDED_FORMS } from "../testing";
 // filled in or uploaded, so recording sends nothing to the employer. The location search the
 // tests type is recorded too. Overwrites the fixtures; review the diff before committing.
 
+/** The page's inline config carries Greenhouse's browser-side keys (picker, geocoding, Rollbar): not ours to commit. */
+function scrubKeys(html: string): string {
+	return html.replace(/("[A-Z_]*(?:KEY|TOKEN|SECRET|CLIENT_ID)[A-Z_]*":)"[^"]*"/g, '$1"recorded"');
+}
+
 for (const form of Object.values(RECORDED_FORMS)) {
 	const browser = await chromium.launch();
 	const context = await browser.newContext({ serviceWorkers: "block" });
@@ -41,5 +46,9 @@ for (const form of Object.values(RECORDED_FORMS)) {
 		body: await response.json(),
 	};
 	writeFileSync(form.questions, `${JSON.stringify(recorded, null, "\t")}\n`);
+	// The confirmation page anyone can open; recording it submits nothing.
+	const confirmation = await fetch(form.confirmationUrl);
+	if (!confirmation.ok) throw new Error(`the confirmation page returned ${confirmation.status}`);
+	writeFileSync(form.confirmation, scrubKeys(await confirmation.text()));
 	console.log(`recorded ${form.url}`);
 }

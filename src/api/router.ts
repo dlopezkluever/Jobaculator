@@ -14,13 +14,17 @@ import {
 import {
 	countDryRuns,
 	countInFlight,
+	countSubmitted,
+	countUncertain,
 	getApplication,
 	getPackage,
 	getSubmissionMode,
 	listApplications,
 	listBrowserRuns,
+	listSubmitIntents,
 	RunRefused,
 	requestDryRun,
+	setSubmissionMode,
 } from "../packages/applications/index";
 import { getKnowledgeBase } from "../packages/candidate/index";
 import { factKind, isFactKindName } from "../packages/candidate/kinds";
@@ -28,7 +32,7 @@ import { isSessionLockHeld } from "../packages/db/index";
 import { getOpportunity, listOpportunities, listWatchedBoards } from "../packages/discovery/index";
 import { listEvents } from "../packages/events/index";
 import { countActiveHolds, listActiveHolds } from "../packages/holds/index";
-import { HUNT_STATUSES, huntInputSchema } from "../packages/hunts/criteria";
+import { HUNT_STATUSES, huntInputSchema, SUBMISSION_MODES } from "../packages/hunts/criteria";
 import {
 	createHunt,
 	getHunt,
@@ -39,6 +43,7 @@ import {
 	updateHunt,
 } from "../packages/hunts/index";
 import { WORKER_LOCK_KEY } from "../packages/jobs/index";
+import { getLaunchGate, LiveRefused } from "../packages/launch/index";
 import { candidateRouter } from "./candidate";
 import { authedProcedure, router } from "./trpc";
 
@@ -54,7 +59,12 @@ async function asBadRequest<T>(run: () => Promise<T>): Promise<T> {
 	try {
 		return await run();
 	} catch (error) {
-		if (error instanceof KeyValidationError || error instanceof SettingsError || error instanceof RunRefused) {
+		if (
+			error instanceof KeyValidationError ||
+			error instanceof SettingsError ||
+			error instanceof RunRefused ||
+			error instanceof LiveRefused
+		) {
 			throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
 		}
 		throw error;
@@ -66,6 +76,8 @@ export const appRouter = router({
 		/** Sidebar footer: the global submission mode and whether the worker is running. */
 		status: authedProcedure.query(async ({ ctx }) => ({
 			mode: await getSubmissionMode(ctx.db, ctx.userId),
+			/** Whether Live may be chosen: a passed restore drill and the journal's activation are recorded (§17). */
+			launchGateOpen: (await getLaunchGate(ctx.db)).open,
 			workerRunning: await isSessionLockHeld(ctx.db, WORKER_LOCK_KEY),
 			/** One banner per active Hold (§16). */
 			holds: (await listActiveHolds(ctx.db, ctx.userId)).map((hold) => ({
@@ -74,6 +86,10 @@ export const appRouter = router({
 				raisedAt: hold.raisedAt.toISOString(),
 			})),
 		})),
+		/** Settings → submission mode (§5). Live is refused until the launch gate is recorded. */
+		setMode: authedProcedure
+			.input(z.object({ mode: z.enum(SUBMISSION_MODES) }))
+			.mutation(({ ctx, input }) => asBadRequest(() => setSubmissionMode(ctx.db, ctx.userId, input.mode))),
 	}),
 	/** Settings → AI keys and spend (§12). Keys are write-only: reads return only their last 4 characters. */
 	ai: router({
@@ -101,14 +117,15 @@ export const appRouter = router({
 	}),
 	dashboard: router({
 		/**
-		 * The Dashboard's counts (§16), owner-scoped. Nothing is submitted or waiting on the
-		 * Candidate yet; the tickets that add SubmitGate and Interventions count those here.
+		 * The Dashboard's counts (§16), owner-scoped: confirmed Submitted on the Candidate's local
+		 * day. Dry Runs and Uncertain Submissions never count as Submitted. Needs You and Review
+		 * arrive with Tracer Bullets 2 and 3.
 		 */
 		summary: authedProcedure.query(async ({ ctx }) => ({
-			submitted: { today: 0, week: 0, allTime: 0 },
+			submitted: await countSubmitted(ctx.db, ctx.userId, (await getAiSettings(ctx.db, ctx.userId)).timeZone),
 			inFlight: await countInFlight(ctx.db, ctx.userId),
 			dryRuns: await countDryRuns(ctx.db, ctx.userId),
-			attention: { needsYou: 0, review: 0, uncertain: 0 },
+			attention: { needsYou: 0, review: 0, uncertain: await countUncertain(ctx.db, ctx.userId) },
 			holds: await countActiveHolds(ctx.db, ctx.userId),
 		})),
 	}),
@@ -126,10 +143,14 @@ export const appRouter = router({
 					.reverse(),
 			};
 		}),
-		create: authedProcedure.input(huntInputSchema).mutation(({ ctx, input }) => createHunt(ctx.db, ctx.userId, input)),
+		create: authedProcedure
+			.input(huntInputSchema)
+			.mutation(({ ctx, input }) => asBadRequest(() => createHunt(ctx.db, ctx.userId, input))),
 		update: authedProcedure
 			.input(huntId.extend({ hunt: huntInputSchema }))
-			.mutation(async ({ ctx, input }) => found(await updateHunt(ctx.db, ctx.userId, input.id, input.hunt))),
+			.mutation(async ({ ctx, input }) =>
+				found(await asBadRequest(() => updateHunt(ctx.db, ctx.userId, input.id, input.hunt))),
+			),
 		setStatus: authedProcedure
 			.input(huntId.extend({ status: z.enum(HUNT_STATUSES) }))
 			.mutation(async ({ ctx, input }) => found(await setHuntStatus(ctx.db, ctx.userId, input.id, input.status))),
@@ -171,12 +192,13 @@ export const appRouter = router({
 		get: authedProcedure.input(z.object({ id: z.uuid() })).query(async ({ ctx, input }) => {
 			const application = await getApplication(ctx.db, ctx.userId, input.id);
 			if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No such Application" });
-			const [pkg, opportunity, hunt, knowledge, runs] = await Promise.all([
+			const [pkg, opportunity, hunt, knowledge, runs, intents] = await Promise.all([
 				getPackage(ctx.db, ctx.userId, application.id),
 				getOpportunity(ctx.db, ctx.userId, application.opportunityId),
 				getHunt(ctx.db, ctx.userId, application.drivingHuntId),
 				getKnowledgeBase(ctx.db, ctx.userId),
 				listBrowserRuns(ctx.db, ctx.userId, application.id),
+				listSubmitIntents(ctx.db, ctx.userId, application.id),
 			]);
 			// What each answer rests on, as the Candidate reads it. Standing answers are not stored yet (§8).
 			const facts = new Map(
@@ -211,6 +233,7 @@ export const appRouter = router({
 				/** The Execution tab (§16): each Browser Run's steps, screenshots and filled values, newest first. */
 				runs: runs.map((run) => {
 					let shot = 0;
+					const intent = intents.find((i) => i.browserRunId === run.id);
 					return {
 						id: run.id,
 						mode: run.mode,
@@ -221,6 +244,19 @@ export const appRouter = router({
 						createdAt: run.createdAt.toISOString(),
 						startedAt: run.startedAt?.toISOString() ?? null,
 						finishedAt: run.finishedAt?.toISOString() ?? null,
+						/** The run's submit intent, if it crossed the boundary, with its confirmation evidence. */
+						submission: intent
+							? {
+									status: intent.status,
+									at: intent.createdAt.toISOString(),
+									confirmation: intent.confirmation && {
+										text: intent.confirmation.text,
+										url: intent.confirmation.url,
+										at: intent.confirmation.at,
+										applicationId: intent.confirmation.applicationId,
+									},
+								}
+							: null,
 						// Screenshots are served by index through the Application, never by blob hash (§13).
 						events: run.events.map((e) =>
 							e.type === "screenshot" ? { type: e.type, at: e.at, label: e.label, index: shot++ } : e,

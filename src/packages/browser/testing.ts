@@ -19,6 +19,11 @@ export type RecordedForm = {
 	hosts: RegExp;
 	har: string;
 	questions: string;
+	/** Where the form posts the application, and the confirmation page it then opens (hosted form). */
+	submitUrl: string;
+	confirmationUrl: string;
+	/** The recorded confirmation page: a plain GET of its URL, which shows it to anyone. */
+	confirmation: string;
 };
 
 export const RECORDED_FORMS = {
@@ -32,6 +37,9 @@ export const RECORDED_FORMS = {
 			/^https:\/\/(job-boards\.greenhouse\.io|job-boards\.cdn\.greenhouse\.io|my\.greenhouse\.io|s4-recruiting\.cdn\.greenhouse\.io|api-geocode-earth-proxy\.greenhouse\.io)\//,
 		har: fixture("greenhouse-figma.har.zip"),
 		questions: fixture("greenhouse-questions-figma.json"),
+		submitUrl: "https://boards.greenhouse.io/figma/jobs/5426468004",
+		confirmationUrl: "https://job-boards.greenhouse.io/figma/jobs/5426468004/confirmation",
+		confirmation: fixture("greenhouse-confirmation-figma.html"),
 	},
 } as const satisfies Record<string, RecordedForm>;
 
@@ -112,4 +120,44 @@ export async function replayRecordedForm(
 		}),
 	);
 	return requests;
+}
+
+/**
+ * Stands in for Greenhouse accepting the hosted form's application, in a context already
+ * replaying it: `accept` answers the POST as Greenhouse does and serves the recorded
+ * confirmation page it then opens; `fail` makes the POST fail as a lost connection would.
+ * Returns the application bodies posted.
+ */
+export async function answerSubmissions(
+	context: BrowserContext,
+	form: RecordedForm,
+	answer: "accept" | "fail",
+): Promise<unknown[]> {
+	const posted: unknown[] = [];
+	await context.route(form.submitUrl, (route) => {
+		if (route.request().method() === "OPTIONS") {
+			return route.fulfill({
+				status: 204,
+				headers: {
+					"Access-Control-Allow-Origin": route.request().headers().origin ?? "*",
+					"Access-Control-Allow-Methods": "POST",
+					"Access-Control-Allow-Headers": "content-type",
+					"Access-Control-Allow-Credentials": "true",
+				},
+			});
+		}
+		posted.push(route.request().postDataJSON());
+		if (answer === "fail") return route.abort("connectionreset");
+		return route.fulfill({
+			headers: {
+				"Access-Control-Allow-Origin": route.request().headers().origin ?? "*",
+				"Access-Control-Allow-Credentials": "true",
+			},
+			json: {},
+		});
+	});
+	await context.route(form.confirmationUrl, (route) =>
+		route.fulfill({ contentType: "text/html", body: readFileSync(form.confirmation, "utf8") }),
+	);
+	return posted;
 }

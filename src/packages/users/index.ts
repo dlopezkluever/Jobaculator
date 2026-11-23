@@ -85,6 +85,8 @@ const newUserSchema = z.object({
 	email: z.email().transform((email) => email.toLowerCase()),
 	name: z.string().trim().min(1),
 	password: z.string().min(MIN_PASSWORD_LENGTH).max(128),
+	/** The canary User (§18): never submitted for, whatever its settings. */
+	canary: z.boolean().default(false),
 });
 
 export class UserError extends Error {
@@ -98,10 +100,10 @@ export class UserError extends Error {
 export async function createUser(exec: Executor, input: z.input<typeof newUserSchema>): Promise<UserId> {
 	const parsed = newUserSchema.safeParse(input);
 	if (!parsed.success) throw new UserError(describeIssues(parsed.error));
-	const { email, name, password } = parsed.data;
+	const { email, name, password, canary } = parsed.data;
 	const [existing] = await exec.select({ id: user.id }).from(user).where(eq(user.email, email));
 	if (existing) throw new UserError("a User with this email already exists");
-	const [created] = await exec.insert(user).values({ email, name }).returning({ id: user.id });
+	const [created] = await exec.insert(user).values({ email, name, canary }).returning({ id: user.id });
 	if (!created) throw new UserError("the User was not created");
 	const userId = userIdSchema.parse(created.id);
 	await exec.insert(authAccount).values({
@@ -111,6 +113,12 @@ export async function createUser(exec: Executor, input: z.input<typeof newUserSc
 		password: await hashPassword(password),
 	});
 	return userId;
+}
+
+/** Whether the User is the canary User (§18), for which nothing is ever submitted. */
+export async function isCanaryUser(exec: Executor, id: UserId): Promise<boolean> {
+	const [found] = await exec.select({ canary: user.canary }).from(user).where(eq(user.id, id));
+	return found?.canary ?? false;
 }
 
 /** Sets a User's password and signs out every session (admin CLI only). */

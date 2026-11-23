@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import type { RunEvent } from "../../applications/index";
 import { type ApplicationQuestion, createGreenhouseAdapter, createSourceHttp } from "../../discovery/index";
 import type { ApplicationAnswer } from "../../generation/index";
-import { createBrowserRunner, type PackagePort } from "../index";
-import { EMBEDDING_PAGE, RECORDED_FORMS, recordedQuestions, replayRecordedForm } from "../testing";
+import { createBrowserRunner, type PackagePort, type SubmitGate } from "../index";
+import { answerSubmissions, EMBEDDING_PAGE, RECORDED_FORMS, recordedQuestions, replayRecordedForm } from "../testing";
 
 // Dry Runs of a recorded real Greenhouse form (§18), replayed through Playwright request
 // interception: nothing reaches the network.
@@ -62,11 +62,13 @@ function dryRun(
 	url: string,
 	extra?: (context: BrowserContext) => Promise<unknown>,
 	answers: ApplicationAnswer[] = ANSWERS,
+	live?: { gate: SubmitGate },
 ) {
 	const events: RunEvent[] = [];
 	const generated: ApplicationQuestion[][] = [];
 	let requests: { method: string; url: string }[] = [];
 	const runner = createBrowserRunner({
+		confirmationTimeoutMs: 5_000,
 		onContext: async (context) => {
 			requests = await replayRecordedForm(context, form);
 			await extra?.(context);
@@ -89,8 +91,13 @@ function dryRun(
 	const run = runner
 		.run({
 			url,
-			mode: "dry",
+			mode: live ? "live" : "dry",
 			package: pkg,
+			gate: live?.gate ?? {
+				cross: async () => {
+					throw new Error("a Dry Run never reaches the gate");
+				},
+			},
 			signal: AbortSignal.timeout(90_000),
 			events: {
 				record: async (event) => {
@@ -180,5 +187,84 @@ describe("a Dry Run of a recorded Greenhouse form", () => {
 		const posts = failed.filter((f) => f.url === form.url);
 		expect(posts.length).toBeGreaterThan(0);
 		for (const post of posts) expect(post.error).toMatch(/ERR_BLOCKED_BY_CLIENT/);
+	}, 120_000);
+});
+
+/** A gate that records what it was asked to freeze, and answers `crosses`. */
+function gate(crosses: boolean) {
+	const crossings: number[] = [];
+	return {
+		crossings,
+		gate: {
+			async cross(fields) {
+				crossings.push(fields.length);
+				return crosses;
+			},
+		} satisfies SubmitGate,
+	};
+}
+
+describe("a live run of a recorded Greenhouse form", () => {
+	it("crosses the gate once, clicks submit, and keeps the confirmation the page shows", async () => {
+		const live = gate(true);
+		let posted: unknown[] = [];
+		const { run, events } = dryRun(
+			form.url,
+			async (context) => {
+				posted = await answerSubmissions(context, form, "accept");
+			},
+			ANSWERS,
+			live,
+		);
+		const outcome = await run;
+		expect(outcome.kind).toBe("submitted");
+		if (outcome.kind !== "submitted") return;
+		expect(live.crossings).toHaveLength(1);
+		expect(live.crossings[0]).toBeGreaterThan(5);
+		// One application reached Greenhouse, with what was filled in.
+		expect(posted).toHaveLength(1);
+		expect(JSON.stringify(posted[0])).toContain("ada@example.com");
+		expect(outcome.confirmation).toMatchObject({ url: form.confirmationUrl, screenshot: "Confirmation" });
+		expect(outcome.confirmation.text).toMatch(/Thank you for applying/);
+		const order = events.map((e) => e.type).filter((t) => t.startsWith("submit") || t.startsWith("confirmation"));
+		expect(order).toEqual(["submit_clicked", "confirmation_detected"]);
+	}, 120_000);
+
+	it("never clicks submit when the gate refuses, and nothing reaches the form", async () => {
+		const live = gate(false);
+		let posted: unknown[] = [];
+		const { run, events, requests } = dryRun(
+			form.url,
+			async (context) => {
+				posted = await answerSubmissions(context, form, "accept");
+			},
+			ANSWERS,
+			live,
+		);
+		const outcome = await run;
+		expect(outcome.kind).toBe("aborted");
+		expect(live.crossings).toHaveLength(1);
+		expect(posted).toEqual([]);
+		expect(formWrites(requests())).toEqual([]);
+		expect(events.map((e) => e.type)).toContain("submit_refused");
+		expect(events.map((e) => e.type)).not.toContain("submit_clicked");
+	}, 120_000);
+
+	it("is an Uncertain Submission when the page never confirms after the click", async () => {
+		const live = gate(true);
+		let posted: unknown[] = [];
+		const { run, events } = dryRun(
+			form.url,
+			async (context) => {
+				posted = await answerSubmissions(context, form, "fail");
+			},
+			ANSWERS,
+			live,
+		);
+		const outcome = await run;
+		expect(outcome.kind).toBe("submit_unknown");
+		expect(posted).toHaveLength(1);
+		expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(["submit_clicked", "no_confirmation"]));
+		expect(events.map((e) => e.type)).not.toContain("confirmation_detected");
 	}, 120_000);
 });

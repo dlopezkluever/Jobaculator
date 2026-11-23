@@ -19,6 +19,12 @@ Environment=DATA_DIR=/var/lib/jobaculator/data
 # Chromium installed by ops/provision (read-only here).
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/jobaculator/ms-playwright
 LoadCredential=master-key:/etc/jobaculator/credentials/worker/master-key
+# The submit-intent journal (§13), set up by the launch checklist (TB1-18): until then live
+# runs never cross the submit boundary. journal-key is "<access key id>:<secret access key>"
+# of the R2 token that may only create and read objects in the journal bucket.
+#Environment=JOURNAL_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+#Environment=JOURNAL_BUCKET=jobaculator-journal
+#LoadCredential=journal-key:/etc/jobaculator/credentials/worker/journal-key
 # SIGTERM to the main process starts the graceful stop (60 s grace in worker.ts); then the
 # remaining children (Chromium) are killed. An OOM kill restarts it and counts as a crash.
 KillMode=mixed

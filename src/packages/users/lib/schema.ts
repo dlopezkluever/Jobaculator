@@ -16,6 +16,8 @@ export const user = pgTable("user", {
 	email: text("email").notNull().unique(),
 	emailVerified: boolean("email_verified").notNull().default(false),
 	image: text("image"),
+	/** The seeded canary User of the weekly live Dry Runs (§18): SubmitGate refuses Live for it whatever the settings. */
+	canary: boolean("canary").notNull().default(false),
 	...timestamps,
 });
 

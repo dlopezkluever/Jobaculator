@@ -5,6 +5,8 @@ import { loadConfig } from "./packages/config/index";
 import { createDatabase, trySessionLock } from "./packages/db/index";
 import { createGreenhouseAdapter, createSourceHttp } from "./packages/discovery/index";
 import { createJobs, WORKER_LOCK_KEY } from "./packages/jobs/index";
+import { createR2Journal } from "./packages/journal/index";
+import { recoveryMarker } from "./packages/launch/index";
 import { createLogger } from "./packages/log/index";
 import { browserRunQueue, createBrowserPipeline } from "./packages/pipeline/browser";
 import {
@@ -70,7 +72,20 @@ await applications.work();
 await createPreparationPipeline({ db: database.db, jobs, llm, storage, adapters, log }).work();
 // The one browser (§17), launched on the first Browser Run.
 const runner = createBrowserRunner();
-const browser = createBrowserPipeline({ db: database.db, jobs, llm, storage, adapters, runner, log });
+// The submit-intent journal (§13); without it, live runs never cross the submit boundary.
+const journal = config.journal && createR2Journal(config.journal);
+if (!journal) log.warn({ event: "journal_not_configured" });
+const browser = createBrowserPipeline({
+	db: database.db,
+	jobs,
+	llm,
+	storage,
+	adapters,
+	runner,
+	journal,
+	marker: recoveryMarker(config.dataDir),
+	log,
+});
 await browser.work();
 async function discoveryTick() {
 	try {

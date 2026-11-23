@@ -22,12 +22,16 @@ import { user } from "../../users/tables";
 import {
 	APPLICATION_STATUSES,
 	BROWSER_RUN_STATUSES,
+	type Confirmation,
 	type FrozenEvaluation,
+	INTERVENTION_KINDS,
+	type PackageRevision,
 	type PreparationFailure,
 	RUN_MODES,
 	type RunCheckpoint,
 	type RunFailure,
 	type StoredRunEvent,
+	SUBMIT_INTENT_STATUSES,
 } from "./types";
 
 /** The single attempt to apply to one Opportunity (ADR 0001): at most one per Opportunity. */
@@ -133,6 +137,8 @@ export const browserRun = pgTable(
 		status: text("status", { enum: BROWSER_RUN_STATUSES }).notNull().default("QUEUED"),
 		/** The worker process that owns the run while RUNNING. */
 		workerId: text("worker_id"),
+		/** The run's stable submit-intent id (§5): assigned once, before the journal entry is written. */
+		intentId: uuid("intent_id").unique(),
 		heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
 		events: jsonb("events").$type<StoredRunEvent[]>().notNull().default([]),
 		checkpoint: jsonb("checkpoint").$type<RunCheckpoint>(),
@@ -145,6 +151,63 @@ export const browserRun = pgTable(
 		uniqueIndex("browser_run_active_idx").on(t.applicationId).where(sql`${t.status} in ('QUEUED', 'RUNNING')`),
 		index("browser_run_application_idx").on(t.userId, t.applicationId, t.createdAt),
 		index("browser_run_status_idx").on(t.status),
+		foreignKey({
+			columns: [t.applicationId, t.userId],
+			foreignColumns: [application.id, application.userId],
+		}).onDelete("cascade"),
+	],
+);
+
+/**
+ * The submit intent (§5, §13, #12, #22): written in the submit-boundary transaction, keyed by
+ * its Browser Run, with the Package revision frozen as it was submitted. Permanent. At most one
+ * open (not yet conclusively resolved) intent per Application.
+ */
+export const submitIntent = pgTable(
+	"submit_intent",
+	{
+		/** The stable intent id the journal entry was written under. */
+		id: uuid("id").primaryKey(),
+		userId: uuid("user_id").notNull(),
+		applicationId: uuid("application_id").notNull(),
+		browserRunId: uuid("browser_run_id")
+			.notNull()
+			.unique()
+			.references(() => browserRun.id),
+		status: text("status", { enum: SUBMIT_INTENT_STATUSES }).notNull().default("OPEN"),
+		revision: jsonb("revision").$type<PackageRevision>().notNull(),
+		confirmation: jsonb("confirmation").$type<Confirmation>(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		/** When the outcome was recorded: confirmed, or found uncertain. */
+		resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+	},
+	(t) => [
+		uniqueIndex("submit_intent_open_idx").on(t.applicationId).where(sql`${t.status} in ('OPEN', 'UNKNOWN')`),
+		index("submit_intent_user_idx").on(t.userId, t.status, t.resolvedAt),
+		foreignKey({
+			columns: [t.applicationId, t.userId],
+			foreignColumns: [application.id, application.userId],
+		}).onDelete("cascade"),
+	],
+);
+
+/**
+ * An Intervention (§4, §5): something only the Candidate can resolve. A stub record here; the
+ * Inbox and its resolutions are Tracer Bullet 2's.
+ */
+export const intervention = pgTable(
+	"intervention",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		userId: uuid("user_id").notNull(),
+		applicationId: uuid("application_id").notNull(),
+		browserRunId: uuid("browser_run_id").references(() => browserRun.id),
+		kind: text("kind", { enum: INTERVENTION_KINDS }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+	},
+	(t) => [
+		index("intervention_user_idx").on(t.userId, t.resolvedAt),
 		foreignKey({
 			columns: [t.applicationId, t.userId],
 			foreignColumns: [application.id, application.userId],

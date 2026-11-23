@@ -4,15 +4,19 @@ import type { Db, Executor, Tx } from "../../db/index";
 import type { UserId } from "../../db/ownership";
 import { opportunity } from "../../discovery/tables";
 import { appendEvent, defineEvent } from "../../events/index";
-import { LIVE_REFUSED, type SubmissionMode } from "../../hunts/criteria";
+import type { SubmissionMode } from "../../hunts/criteria";
 import { hunt } from "../../hunts/tables";
+import { assertLiveAllowed } from "../../launch/index";
 import type { BlobHash } from "../../storage/index";
+import { user } from "../../users/tables";
 import { transition } from "./lifecycle";
-import { application, browserRun, submissionSettings } from "./schema";
+import { application, browserRun, submissionSettings, submitIntent } from "./schema";
+import { confirmSubmission, markUncertain } from "./submit";
 import {
 	APPLICATION_SUBJECT,
 	BROWSER_RUN_STATUSES,
 	type BrowserRunStatus,
+	type Confirmation,
 	FAILURE_CATEGORIES,
 	RUN_MODES,
 	type RunCheckpoint,
@@ -58,9 +62,9 @@ export async function getSubmissionMode(exec: Executor, owner: UserId): Promise<
 	return row?.mode ?? "DRY_RUN";
 }
 
-/** Sets the global submission mode. Live is refused until the launch gate is recorded. */
+/** Sets the global submission mode. Live throws `LiveRefused` until the launch gate is recorded (§17). */
 export async function setSubmissionMode(exec: Executor, owner: UserId, mode: SubmissionMode): Promise<void> {
-	if (mode === "LIVE") throw new RunRefused(LIVE_REFUSED);
+	if (mode === "LIVE") await assertLiveAllowed(exec);
 	await exec
 		.insert(submissionSettings)
 		.values({ userId: owner, mode })
@@ -91,13 +95,21 @@ const FINISHED: BrowserRunStatus[] = ["COMPLETED", "FAILED"];
  * Applications move to APPLYING with a QUEUED run each, explicit Candidate requests first,
  * then in Opportunity Value order. Effective mode = the Candidate's request > the Driving
  * Hunt's > the global setting. A Dry Run that finished leaves the Application READY and it
- * is not claimed again while its mode stays dry, unless the Candidate asks; live waits for
- * SubmitGate (TB1-14). Skips Users in `excludeUsers` (under a Hold) and closed postings.
- * Enqueue `browser_run` in the same transaction.
+ * is not claimed again while its mode stays dry, unless the Candidate asks. A live run that
+ * failed is not claimed again by itself (automatic retries are TB1-15's). Skips Users in
+ * `excludeUsers` (under a Hold) and closed postings. Enqueue `browser_run` in the same transaction.
  */
 export async function claimBrowserRuns(
 	tx: Tx,
-	options: { browsers: number; excludeUsers?: readonly UserId[]; now?: Date },
+	options: {
+		browsers: number;
+		excludeUsers?: readonly UserId[];
+		/** Whether live runs may be dispatched: the launch gate is open and no recovery is in progress. */
+		live?: boolean;
+		/** Users whose live runs wait (a journal Hold); their Dry Runs still run. */
+		excludeLiveUsers?: readonly UserId[];
+		now?: Date;
+	},
 ): Promise<{ userId: UserId; applicationId: string; browserRunId: string }[]> {
 	await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended('applications:dispatch-browser', 0))`);
 	const [busy] = await tx.select({ n: count() }).from(browserRun).where(inArray(browserRun.status, ACTIVE));
@@ -112,9 +124,16 @@ export async function claimBrowserRuns(
 			FINISHED.map((s) => sql`${s}`),
 			sql`, `,
 		)}))`;
+	const failedLiveRun = sql`exists (select 1 from ${browserRun} where ${browserRun.applicationId} = ${application.id}
+		and ${browserRun.userId} = ${application.userId} and ${browserRun.mode} = 'live' and ${browserRun.status} = 'FAILED')`;
 	const excluded = options.excludeUsers ?? [];
 	const picked = await tx
-		.select({ id: application.id, userId: application.userId, requested: application.requestedMode })
+		.select({
+			id: application.id,
+			userId: application.userId,
+			requested: application.requestedMode,
+			effective: sql<SubmissionMode>`${effective}`,
+		})
 		.from(application)
 		.innerJoin(
 			opportunity,
@@ -126,8 +145,20 @@ export async function claimBrowserRuns(
 			and(
 				eq(application.status, "READY"),
 				eq(opportunity.status, "OPEN"),
-				sql`${effective} = 'DRY_RUN'`,
-				or(isNotNull(application.requestedMode), sql`not ${finishedDryRun}`),
+				or(
+					and(sql`${effective} = 'DRY_RUN'`, or(isNotNull(application.requestedMode), sql`not ${finishedDryRun}`)),
+					options.live
+						? and(
+								sql`${effective} = 'LIVE'`,
+								sql`not ${failedLiveRun}`,
+								// The canary User is never submitted for (§18).
+								sql`not exists (select 1 from ${user} where ${user.id} = ${application.userId} and ${user.canary})`,
+								(options.excludeLiveUsers ?? []).length > 0
+									? notInArray(application.userId, [...(options.excludeLiveUsers ?? [])])
+									: undefined,
+							)
+						: undefined,
+				),
 				excluded.length > 0 ? notInArray(application.userId, [...excluded]) : undefined,
 			),
 		)
@@ -146,14 +177,15 @@ export async function claimBrowserRuns(
 		const owner = row.userId as UserId;
 		if (!(await transition(tx, owner, row.id, "READY", "APPLYING"))) continue;
 		await tx.update(application).set({ requestedMode: null }).where(eq(application.id, row.id));
+		const mode: RunMode = row.effective === "LIVE" ? "live" : "dry";
 		const [run] = await tx
 			.insert(browserRun)
-			.values({ userId: owner, applicationId: row.id, mode: "dry" })
+			.values({ userId: owner, applicationId: row.id, mode })
 			.returning({ id: browserRun.id });
 		if (!run) throw new Error("the Browser Run was not created");
 		await appendEvent(tx, owner, browserRunQueued, row.id, {
 			browserRunId: run.id,
-			mode: "dry",
+			mode,
 			requested: row.requested !== null,
 		});
 		claimed.push({ userId: owner, applicationId: row.id, browserRunId: run.id });
@@ -234,13 +266,16 @@ export async function recordBrowserRunEvents(
 
 export type RunEnd =
 	| { status: "COMPLETED"; checkpoint: RunCheckpoint }
+	| { status: "SUBMITTED"; checkpoint: RunCheckpoint; confirmation: Confirmation }
 	| { status: "FAILED"; checkpoint: RunCheckpoint; failure: RunFailure }
 	| { status: "ABORTED"; checkpoint: RunCheckpoint | null };
 
 /**
- * Ends this worker's run and moves the Application back to READY, keeping the evidence: a
- * finished Dry Run (§5), a pre-boundary failure (recovery comes with TB1-15) or an abort,
- * which uses no attempt. False when the run is no longer this worker's (it was reclaimed).
+ * Ends this worker's run, keeping the evidence. Before the submit boundary the Application
+ * goes back to READY: a finished Dry Run (§5), a pre-boundary failure (recovery comes with
+ * TB1-15) or an abort, which uses no attempt. Past the boundary only a positive confirmation
+ * makes it SUBMITTED; anything else is an Uncertain Submission (SUBMIT_UNKNOWN plus an
+ * Intervention), never retried. False when the run is no longer this worker's (it was reclaimed).
  */
 export async function finishBrowserRun(
 	tx: Tx,
@@ -249,23 +284,62 @@ export async function finishBrowserRun(
 	workerId: string,
 	end: RunEnd,
 ): Promise<boolean> {
+	const [intent] = await tx
+		.select({ id: submitIntent.id })
+		.from(submitIntent)
+		.innerJoin(browserRun, eq(browserRun.id, submitIntent.browserRunId))
+		.where(
+			and(
+				eq(submitIntent.browserRunId, browserRunId),
+				eq(submitIntent.status, "OPEN"),
+				owned(owner, browserRunId, workerId),
+			),
+		)
+		.for("update", { of: submitIntent });
+	if (!intent && end.status === "SUBMITTED") {
+		throw new Error("a submission was reported without crossing the submit boundary");
+	}
+	const submitted = intent !== undefined && end.status === "SUBMITTED";
+	// Past the boundary, anything but a positive confirmation is uncertain, never a failure to retry.
+	let status: BrowserRunStatus;
+	let failure: RunFailure | null;
+	if (intent) {
+		status = submitted ? "COMPLETED" : "FAILED";
+		failure = submitted
+			? null
+			: { category: "UNKNOWN", detail: end.status === "FAILED" ? end.failure.detail : "no confirmation" };
+	} else {
+		status = end.status === "SUBMITTED" ? "COMPLETED" : end.status;
+		failure = end.status === "FAILED" ? end.failure : null;
+	}
 	const [finished] = await tx
 		.update(browserRun)
-		.set({
-			status: end.status,
-			checkpoint: end.checkpoint,
-			failure: end.status === "FAILED" ? end.failure : null,
-			finishedAt: new Date(),
-		})
+		.set({ status, checkpoint: end.checkpoint, failure, finishedAt: new Date() })
 		.where(owned(owner, browserRunId, workerId))
 		.returning({ applicationId: browserRun.applicationId, mode: browserRun.mode });
 	if (!finished) return false;
-	await transition(tx, owner, finished.applicationId, "APPLYING", "READY");
+	if (intent && end.status === "SUBMITTED") {
+		await confirmSubmission(
+			tx,
+			owner,
+			{ intentId: intent.id, applicationId: finished.applicationId },
+			end.confirmation,
+		);
+	} else if (intent) {
+		await markUncertain(
+			tx,
+			owner,
+			{ intentId: intent.id, applicationId: finished.applicationId, browserRunId },
+			"no_confirmation",
+		);
+	} else {
+		await transition(tx, owner, finished.applicationId, "APPLYING", "READY");
+	}
 	await appendEvent(tx, owner, browserRunFinished, finished.applicationId, {
 		browserRunId,
 		mode: finished.mode,
-		status: end.status,
-		category: end.status === "FAILED" ? end.failure.category : null,
+		status,
+		category: failure?.category ?? null,
 	});
 	return true;
 }
@@ -273,7 +347,8 @@ export async function finishBrowserRun(
 /**
  * The sweeper's reclaim (§5, ADR 0004): a RUNNING run whose worker has ended (another worker
  * owns the lock now) or whose heartbeat expired is ABORTED, using no attempt, and its
- * Application is READY again. Returns how many.
+ * Application is READY again; a run that had crossed the submit boundary becomes an Uncertain
+ * Submission instead, never retried. Returns how many.
  */
 export async function reclaimBrowserRuns(
 	db: Db,
@@ -302,7 +377,21 @@ export async function reclaimBrowserRuns(
 		for (const run of stale) {
 			const owner = run.userId as UserId;
 			await tx.update(browserRun).set({ status: "ABORTED", finishedAt: new Date() }).where(eq(browserRun.id, run.id));
-			await transition(tx, owner, run.applicationId, "APPLYING", "READY");
+			const [intent] = await tx
+				.select({ id: submitIntent.id })
+				.from(submitIntent)
+				.where(and(eq(submitIntent.browserRunId, run.id), eq(submitIntent.status, "OPEN")))
+				.for("update");
+			if (intent) {
+				await markUncertain(
+					tx,
+					owner,
+					{ intentId: intent.id, applicationId: run.applicationId, browserRunId: run.id },
+					"run_lost",
+				);
+			} else {
+				await transition(tx, owner, run.applicationId, "APPLYING", "READY");
+			}
 			await appendEvent(tx, owner, browserRunFinished, run.applicationId, {
 				browserRunId: run.id,
 				mode: run.mode,
