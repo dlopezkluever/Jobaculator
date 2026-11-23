@@ -7,6 +7,7 @@ import { appendEvent, defineEvent } from "../events/index";
 import { hunt } from "../hunts/tables";
 import type { Match } from "../matching/index";
 import { match } from "../matching/tables";
+import { transition } from "./lib/lifecycle";
 import { application } from "./lib/schema";
 import {
 	APPLICATION_STATUSES,
@@ -15,12 +16,16 @@ import {
 	type FrozenEvaluation,
 	TRANSITIONS,
 } from "./lib/types";
+import { valueTier } from "./lib/value";
 
 // Applications (§4, §5, #9, #12, ADR 0001, 0002, 0004): the single attempt to apply to one
 // Opportunity, its lifecycle, and the Opportunity Value order preparation is pulled in. This
 // module is the only writer of Applications and records every change as an event.
 
+export { applicationStatusChanged, transition } from "./lib/lifecycle";
 export {
+	addAnswers,
+	answersAdded,
 	answersWritten,
 	clearPreparationFailure,
 	getPackage,
@@ -37,13 +42,45 @@ export {
 	strategyWritten,
 } from "./lib/package";
 export {
+	type BrowserRun,
+	browserRunEvidence,
+	browserRunFinished,
+	browserRunQueued,
+	claimBrowserRuns,
+	countDryRuns,
+	finishBrowserRun,
+	getSubmissionMode,
+	heartbeatBrowserRun,
+	listBrowserRuns,
+	queuedBrowserRuns,
+	RunRefused,
+	reclaimBrowserRuns,
+	recordBrowserRunEvents,
+	requestDryRun,
+	setSubmissionMode,
+	startBrowserRun,
+} from "./lib/runs";
+export {
 	APPLICATION_STATUSES,
 	APPLICATION_SUBJECT,
 	type ApplicationStatus,
+	BROWSER_RUN_STATUSES,
+	type BrowserRunStatus,
+	FAILURE_CATEGORIES,
+	type FailureCategory,
+	type FieldRecord,
+	type FieldType,
 	type FrozenEvaluation,
 	type PreparationFailure,
+	RUN_MODES,
+	type RunCheckpoint,
+	type RunEvent,
+	type RunFailure,
+	type RunMode,
+	type StoredRunEvent,
 	TRANSITIONS,
 } from "./lib/types";
+export { OPPORTUNITY_VALUE } from "./lib/value";
 
 export const applicationCreated = defineEvent({
 	code: "application_created",
@@ -57,11 +94,6 @@ export const applicationCreated = defineEvent({
 		/** Every Match that wanted to apply when it was decided. */
 		matchIds: z.array(z.uuid()),
 	}),
-});
-export const applicationStatusChanged = defineEvent({
-	code: "application_status_changed",
-	subject: APPLICATION_SUBJECT,
-	payload: z.object({ from: z.enum(APPLICATION_STATUSES), to: z.enum(APPLICATION_STATUSES) }),
 });
 
 export type Application = {
@@ -186,33 +218,6 @@ export async function getApplicationForOpportunity(
 }
 
 /**
- * Moves the Application from `from` to `to` (compare-and-set) and records it, in the caller's
- * transaction, so the caller's next enqueue commits with it. False when it is no longer in
- * `from`; throws for a transition the lifecycle does not allow. Back in PREPARING, it waits for
- * the dispatcher again.
- */
-export async function transition(
-	tx: Tx,
-	owner: UserId,
-	id: string,
-	from: ApplicationStatus,
-	to: ApplicationStatus,
-): Promise<boolean> {
-	if (!TRANSITIONS[from].includes(to)) throw new Error(`an Application cannot go from ${from} to ${to}`);
-	const [moved] = await tx
-		.update(application)
-		.set({ status: to, updatedAt: new Date(), ...(to === "PREPARING" ? { preparationDispatchedAt: null } : {}) })
-		.where(and(eq(application.id, id), eq(application.userId, owner), eq(application.status, from)))
-		.returning({ id: application.id });
-	if (!moved) return false;
-	await appendEvent(tx, owner, applicationStatusChanged, id, { from, to });
-	return true;
-}
-
-/** Opportunity Value (#29): high Fit is at least this, a posting is recent when known and at most this old. */
-export const OPPORTUNITY_VALUE = { highFit: 80, recentDays: 3 } as const;
-
-/**
  * The priority-pull dispatcher's claim for `prepare` (§5): marks up to the free capacity of
  * waiting PREPARING Applications as dispatched and returns them in Opportunity Value order, one
  * order across Users and Hunts. Capacity is `backlog` minus the READY Applications and the ones
@@ -238,11 +243,7 @@ export async function claimPreparations(
 	if (capacity <= 0) return [];
 
 	const now = options.now ?? new Date();
-	const recentSince = new Date(now.getTime() - OPPORTUNITY_VALUE.recentDays * 24 * 60 * 60 * 1000).toISOString();
-	const recent = sql`${opportunity.postedAt} >= ${recentSince}::timestamptz`;
-	const high = sql`${application.fit} >= ${OPPORTUNITY_VALUE.highFit}`;
-	// An unknown age compares as null, so it falls to the older tier: no boost, no penalty.
-	const tier = sql`case when ${high} and ${recent} then 1 when ${high} then 2 when ${recent} then 3 else 4 end`;
+	const tier = valueTier(now);
 	const excluded = options.excludeUsers ?? [];
 	const picked = await tx
 		.select({ id: application.id, userId: application.userId })

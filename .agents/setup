@@ -37,4 +37,7 @@ EOF
 step "Installing dependencies"
 pnpm install --frozen-lockfile
 
+step "Installing Playwright Chromium (Browser Run tests)"
+pnpm exec playwright install --with-deps chromium
+
 step "Done"

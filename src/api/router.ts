@@ -11,7 +11,17 @@ import {
 	saveProviderKey,
 	updateAiSettings,
 } from "../packages/ai/index";
-import { countInFlight, getApplication, getPackage, listApplications } from "../packages/applications/index";
+import {
+	countDryRuns,
+	countInFlight,
+	getApplication,
+	getPackage,
+	getSubmissionMode,
+	listApplications,
+	listBrowserRuns,
+	RunRefused,
+	requestDryRun,
+} from "../packages/applications/index";
 import { getKnowledgeBase } from "../packages/candidate/index";
 import { factKind, isFactKindName } from "../packages/candidate/kinds";
 import { isSessionLockHeld } from "../packages/db/index";
@@ -44,22 +54,18 @@ async function asBadRequest<T>(run: () => Promise<T>): Promise<T> {
 	try {
 		return await run();
 	} catch (error) {
-		if (error instanceof KeyValidationError || error instanceof SettingsError) {
+		if (error instanceof KeyValidationError || error instanceof SettingsError || error instanceof RunRefused) {
 			throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
 		}
 		throw error;
 	}
 }
 
-export type SubmissionMode = "LIVE" | "DRY_RUN";
-
 export const appRouter = router({
 	system: router({
 		/** Sidebar footer: the global submission mode and whether the worker is running. */
 		status: authedProcedure.query(async ({ ctx }) => ({
-			// Dry Run is the default, and `live` stays refused until the launch gate (§17) records a
-			// passed restore drill and journal activation, so nothing can switch it yet.
-			mode: "DRY_RUN" as SubmissionMode,
+			mode: await getSubmissionMode(ctx.db, ctx.userId),
 			workerRunning: await isSessionLockHeld(ctx.db, WORKER_LOCK_KEY),
 			/** One banner per active Hold (§16). */
 			holds: (await listActiveHolds(ctx.db, ctx.userId)).map((hold) => ({
@@ -95,13 +101,13 @@ export const appRouter = router({
 	}),
 	dashboard: router({
 		/**
-		 * The Dashboard's counts (§16), owner-scoped. Nothing is submitted, Dry Run or waiting on
-		 * the Candidate yet; the tickets that add Browser Runs and Interventions count those here.
+		 * The Dashboard's counts (§16), owner-scoped. Nothing is submitted or waiting on the
+		 * Candidate yet; the tickets that add SubmitGate and Interventions count those here.
 		 */
 		summary: authedProcedure.query(async ({ ctx }) => ({
 			submitted: { today: 0, week: 0, allTime: 0 },
 			inFlight: await countInFlight(ctx.db, ctx.userId),
-			dryRuns: 0,
+			dryRuns: await countDryRuns(ctx.db, ctx.userId),
 			attention: { needsYou: 0, review: 0, uncertain: 0 },
 			holds: await countActiveHolds(ctx.db, ctx.userId),
 		})),
@@ -165,11 +171,12 @@ export const appRouter = router({
 		get: authedProcedure.input(z.object({ id: z.uuid() })).query(async ({ ctx, input }) => {
 			const application = await getApplication(ctx.db, ctx.userId, input.id);
 			if (!application) throw new TRPCError({ code: "NOT_FOUND", message: "No such Application" });
-			const [pkg, opportunity, hunt, knowledge] = await Promise.all([
+			const [pkg, opportunity, hunt, knowledge, runs] = await Promise.all([
 				getPackage(ctx.db, ctx.userId, application.id),
 				getOpportunity(ctx.db, ctx.userId, application.opportunityId),
 				getHunt(ctx.db, ctx.userId, application.drivingHuntId),
 				getKnowledgeBase(ctx.db, ctx.userId),
+				listBrowserRuns(ctx.db, ctx.userId, application.id),
 			]);
 			// What each answer rests on, as the Candidate reads it. Standing answers are not stored yet (§8).
 			const facts = new Map(
@@ -201,8 +208,31 @@ export const appRouter = router({
 					hasResumePdf: pkg.resumePdf !== null,
 					suspended: pkg.suspendedAt !== null,
 				},
+				/** The Execution tab (§16): each Browser Run's steps, screenshots and filled values, newest first. */
+				runs: runs.map((run) => {
+					let shot = 0;
+					return {
+						id: run.id,
+						mode: run.mode,
+						status: run.status,
+						failure: run.failure,
+						url: run.checkpoint?.url ?? null,
+						fields: run.checkpoint?.fields ?? [],
+						createdAt: run.createdAt.toISOString(),
+						startedAt: run.startedAt?.toISOString() ?? null,
+						finishedAt: run.finishedAt?.toISOString() ?? null,
+						// Screenshots are served by index through the Application, never by blob hash (§13).
+						events: run.events.map((e) =>
+							e.type === "screenshot" ? { type: e.type, at: e.at, label: e.label, index: shot++ } : e,
+						),
+					};
+				}),
 			};
 		}),
+		/** The Candidate asks for another Dry Run of a READY Application (§5: an explicit per-run choice). */
+		dryRun: authedProcedure
+			.input(z.object({ id: z.uuid() }))
+			.mutation(({ ctx, input }) => asBadRequest(() => requestDryRun(ctx.db, ctx.userId, input.id))),
 	}),
 	candidate: candidateRouter,
 });

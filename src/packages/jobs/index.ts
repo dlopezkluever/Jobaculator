@@ -17,14 +17,23 @@ export type Queue<S extends z.ZodObject = z.ZodObject> = {
 	schema: S;
 	/** `exclusive`: at most one job per `singletonKey` is queued or running; a send while one is returns null. */
 	policy?: "standard" | "exclusive";
+	/** pg-boss's automatic retries of a failed job; 0 for jobs that must never repeat by themselves. Default 2. */
+	retryLimit?: number;
+	/** How long a job may run before pg-boss expires it. Default 15 minutes. */
+	expireInSeconds?: number;
 };
 
 export function defineQueue<const Shape extends z.ZodRawShape>(
 	name: string,
 	shape: Shape,
-	options: { policy?: Queue["policy"] } = {},
+	options: Pick<Queue, "policy" | "retryLimit" | "expireInSeconds"> = {},
 ) {
-	return { name, schema: z.object({ userId: userIdSchema, ...shape }), policy: options.policy ?? "standard" };
+	return {
+		...options,
+		name,
+		schema: z.object({ userId: userIdSchema, ...shape }),
+		policy: options.policy ?? "standard",
+	};
 }
 
 export type Payload<Q extends Queue> = z.output<Q["schema"]>;
@@ -96,7 +105,12 @@ export function createJobs(options: {
 			if (sendOnly) return;
 			const existing = new Set((await boss.getQueues()).map((queue) => queue.name));
 			for (const queue of options.queues) {
-				if (!existing.has(queue.name)) await boss.createQueue(queue.name, { policy: queue.policy ?? "standard" });
+				if (existing.has(queue.name)) continue;
+				await boss.createQueue(queue.name, {
+					policy: queue.policy ?? "standard",
+					...(queue.retryLimit !== undefined ? { retryLimit: queue.retryLimit } : {}),
+					...(queue.expireInSeconds !== undefined ? { expireInSeconds: queue.expireInSeconds } : {}),
+				});
 			}
 		},
 		async send(queue, payload, sendOptions = {}) {

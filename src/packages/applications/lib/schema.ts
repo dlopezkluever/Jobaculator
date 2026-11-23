@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
 	boolean,
 	foreignKey,
@@ -8,15 +9,26 @@ import {
 	text,
 	timestamp,
 	unique,
+	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
 import { opportunity } from "../../discovery/tables";
 import type { ApplicationAnswer, JobSnapshot, ResumeDocument, Strategy, TemplateId } from "../../generation/index";
+import { SUBMISSION_MODES } from "../../hunts/criteria";
 import { hunt } from "../../hunts/tables";
 import { match } from "../../matching/tables";
 import { blob } from "../../storage/tables";
 import { user } from "../../users/tables";
-import { APPLICATION_STATUSES, type FrozenEvaluation, type PreparationFailure } from "./types";
+import {
+	APPLICATION_STATUSES,
+	BROWSER_RUN_STATUSES,
+	type FrozenEvaluation,
+	type PreparationFailure,
+	RUN_MODES,
+	type RunCheckpoint,
+	type RunFailure,
+	type StoredRunEvent,
+} from "./types";
 
 /** The single attempt to apply to one Opportunity (ADR 0001): at most one per Opportunity. */
 export const application = pgTable(
@@ -41,6 +53,8 @@ export const application = pgTable(
 		evaluation: jsonb("evaluation").$type<FrozenEvaluation>().notNull(),
 		/** When the dispatcher handed this PREPARING Application to `prepare`; null while it waits its turn. */
 		preparationDispatchedAt: timestamp("preparation_dispatched_at", { withTimezone: true }),
+		/** The Candidate's explicit choice for the next Browser Run (§5); cleared when one is dispatched. */
+		requestedMode: text("requested_mode", { enum: SUBMISSION_MODES }),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	},
@@ -88,6 +102,49 @@ export const applicationPackage = pgTable(
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	},
 	(t) => [
+		foreignKey({
+			columns: [t.applicationId, t.userId],
+			foreignColumns: [application.id, application.userId],
+		}).onDelete("cascade"),
+	],
+);
+
+/** The global submission mode (§5, §16 Settings), per User. No row: Dry Run. */
+export const submissionSettings = pgTable("submission_settings", {
+	userId: uuid("user_id")
+		.primaryKey()
+		.references(() => user.id, { onDelete: "cascade" }),
+	mode: text("mode", { enum: SUBMISSION_MODES }).notNull().default("DRY_RUN"),
+	updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One Browser Run of an Application (§5, §10): compact typed events with evidence refs, and the
+ * checkpoint it left (§11). At most one is active per Application. The worker that runs it
+ * heartbeats; the sweeper reclaims it only once that worker ended or its heartbeat expired.
+ */
+export const browserRun = pgTable(
+	"browser_run",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		userId: uuid("user_id").notNull(),
+		applicationId: uuid("application_id").notNull(),
+		mode: text("mode", { enum: RUN_MODES }).notNull(),
+		status: text("status", { enum: BROWSER_RUN_STATUSES }).notNull().default("QUEUED"),
+		/** The worker process that owns the run while RUNNING. */
+		workerId: text("worker_id"),
+		heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+		events: jsonb("events").$type<StoredRunEvent[]>().notNull().default([]),
+		checkpoint: jsonb("checkpoint").$type<RunCheckpoint>(),
+		failure: jsonb("failure").$type<RunFailure>(),
+		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
+		finishedAt: timestamp("finished_at", { withTimezone: true }),
+	},
+	(t) => [
+		uniqueIndex("browser_run_active_idx").on(t.applicationId).where(sql`${t.status} in ('QUEUED', 'RUNNING')`),
+		index("browser_run_application_idx").on(t.userId, t.applicationId, t.createdAt),
+		index("browser_run_status_idx").on(t.status),
 		foreignKey({
 			columns: [t.applicationId, t.userId],
 			foreignColumns: [application.id, application.userId],

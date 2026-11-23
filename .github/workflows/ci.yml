@@ -29,6 +29,8 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Chromium for the Browser Run tests, which replay recorded form pages (§18).
+      - run: pnpm exec playwright install --with-deps chromium
       # typecheck + Biome + dependency-cruiser + destructive-SQL check + Vitest (unit and real Postgres 18)
       - run: pnpm check
 
