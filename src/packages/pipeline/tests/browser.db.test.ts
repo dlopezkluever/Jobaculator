@@ -2,17 +2,20 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createScriptedLlm } from "../../ai/testing";
 import {
 	APPLICATION_SUBJECT,
 	beginSubmission,
 	countDryRuns,
+	countNeedsYou,
 	countSubmitted,
 	countUncertain,
+	type FailureCategory,
 	getApplication,
 	getPackage,
 	listBrowserRuns,
+	listInterventions,
 	listSubmitIntents,
 	prepareSubmitIntent,
 	requestDryRun,
@@ -184,7 +187,12 @@ const marker: RecoveryMarker & { restoring: boolean } = {
 	present: async () => marker.restoring,
 };
 
-const pipeline = (runner: BrowserRunner, script: Parameters<typeof createScriptedLlm>[0] = [], workerId = "worker-a") =>
+const pipeline = (
+	runner: BrowserRunner,
+	script: Parameters<typeof createScriptedLlm>[0] = [],
+	workerId = "worker-a",
+	extra: { timeoutMs?: number } = {},
+) =>
 	createBrowserPipeline({
 		db: database.db,
 		jobs,
@@ -196,6 +204,41 @@ const pipeline = (runner: BrowserRunner, script: Parameters<typeof createScripte
 		marker,
 		log,
 		workerId,
+		...extra,
+	});
+
+/** Ends a failed run's backoff now. */
+const due = (applicationId: string) =>
+	database.db.execute(
+		sql`update application set retry_after = now() - interval '1 second' where id = ${applicationId}`,
+	);
+
+/** Stands in for Chromium: each run reports the next outcome, as the runner does once it has classified a failure. */
+function scriptedRunner(outcomes: RunOutcome[]) {
+	const requests: RunRequest[] = [];
+	const runner: BrowserRunner = {
+		async run(request) {
+			requests.push(request);
+			const next = outcomes.shift();
+			if (!next) throw new Error("no outcome left");
+			return next;
+		},
+		close: async () => {},
+	};
+	return { runner, requests };
+}
+const failed = (category: FailureCategory): RunOutcome => ({
+	kind: "failed",
+	category,
+	detail: "test",
+	url: null,
+	fields: [],
+});
+const aborted: RunOutcome = { kind: "aborted", reason: "test", url: null, fields: [] };
+const untilAborted = (signal: AbortSignal) =>
+	new Promise<void>((resolve) => {
+		if (signal.aborted) resolve();
+		signal.addEventListener("abort", () => resolve(), { once: true });
 	});
 
 const CONFIRMATION = {
@@ -336,7 +379,7 @@ describe("browser_run", () => {
 		expect(await browser.dispatch()).toBe(0);
 	});
 
-	it("reclaims a run whose worker ended, using no attempt, and Dry Runs it again", async () => {
+	it("reclaims a run whose worker died as a crash: BROWSER_FAILURE, one attempt, Dry Run again after its backoff", async () => {
 		const { owner, applicationId } = await readyApplication();
 		const { runner, requests } = fakeRunner();
 		const browser = pipeline(runner, [], "worker-new");
@@ -348,10 +391,16 @@ describe("browser_run", () => {
 		expect(requests).toHaveLength(0);
 
 		expect(await browser.sweep()).toEqual({ reclaimed: 1, nudged: 0 });
-		expect((await getApplication(database.db, owner, applicationId))?.status).toBe("READY");
-		expect((await listBrowserRuns(database.db, owner, applicationId))[0]?.status).toBe("ABORTED");
+		// A graceful shutdown ends its own runs, so one left RUNNING was lost to a crash (§5).
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({ status: "READY", attempts: 1 });
+		expect((await listBrowserRuns(database.db, owner, applicationId))[0]).toMatchObject({
+			status: "FAILED",
+			failure: { category: "BROWSER_FAILURE" },
+		});
 		expect(await countDryRuns(database.db, owner)).toBe(0);
-		// An aborted run is not a finished Dry Run, so the Application is dispatched again.
+		// A failed run is not a finished Dry Run: it is dispatched again once its backoff is over.
+		expect(await browser.dispatch()).toBe(0);
+		await due(applicationId);
 		expect(await browser.dispatch()).toBe(1);
 		await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
 		expect(requests).toHaveLength(1);
@@ -373,6 +422,211 @@ describe("browser_run", () => {
 			}),
 		).rejects.toThrow(/launch gate/);
 		await setSubmissionMode(database.db, owner, "DRY_RUN");
+	});
+});
+
+// Recovery from Browser Runs that fail before the submit boundary (§5, §96 retry table).
+describe("recovering from a failed Browser Run", () => {
+	// One browser: earlier tests' READY Applications must not take it.
+	beforeEach(async () => {
+		await database.db.execute(sql`update application set status = 'ABANDONED' where status = 'READY'`);
+	});
+
+	it("retries after a 1 m then 2 m backoff, and after 3 failed runs stops in Needs You with an Intervention", async () => {
+		const { owner, applicationId } = await readyApplication();
+		const { runner, requests } = scriptedRunner([
+			failed("NETWORK"),
+			failed("BROWSER_FAILURE"),
+			failed("UPLOAD_FAILURE"),
+		]);
+		const browser = pipeline(runner);
+		const runOnce = async () => {
+			expect(await browser.dispatch()).toBe(1);
+			const { browserRunId } = await queuedRun(applicationId);
+			const before = Date.now();
+			await browser.runBrowser(owner, browserRunId);
+			return { browserRunId, before, after: Date.now() };
+		};
+
+		for (const [attempt, backoffMs] of [
+			[1, 60_000],
+			[2, 120_000],
+		] as const) {
+			const { before, after } = await runOnce();
+			const app = await getApplication(database.db, owner, applicationId);
+			expect(app).toMatchObject({ status: "READY", attempts: attempt });
+			const retryAt = app?.retryAfter?.getTime() ?? 0;
+			expect(retryAt).toBeGreaterThanOrEqual(before + backoffMs);
+			expect(retryAt).toBeLessThanOrEqual(after + backoffMs);
+			// It waits out its backoff.
+			expect(await browser.dispatch()).toBe(0);
+			await due(applicationId);
+		}
+		const last = await runOnce();
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({
+			status: "NEEDS_YOU",
+			attempts: 3,
+			retryAfter: null,
+		});
+		expect(await listInterventions(database.db, owner, applicationId)).toMatchObject([
+			{ kind: "ATTEMPTS_EXHAUSTED", browserRunId: last.browserRunId, resolvedAt: null },
+		]);
+		expect(await countNeedsYou(database.db, owner)).toBe(1);
+		expect((await listBrowserRuns(database.db, owner, applicationId)).map((r) => r.failure?.category)).toEqual([
+			"UPLOAD_FAILURE",
+			"BROWSER_FAILURE",
+			"NETWORK",
+		]);
+		const codes = (await listEvents(database.db, owner, { type: APPLICATION_SUBJECT, id: applicationId })).map(
+			(e) => e.code,
+		);
+		expect(codes.filter((c) => c === "browser_run_retry_scheduled")).toHaveLength(2);
+		expect(codes.filter((c) => c === "intervention_opened")).toHaveLength(1);
+
+		// Needs You holds no browser and no job: nothing runs it again by itself.
+		await due(applicationId);
+		expect(await browser.dispatch()).toBe(0);
+		await browser.sweep();
+		expect(await browser.dispatch()).toBe(0);
+		expect(requests).toHaveLength(3);
+	});
+
+	it.each(["NETWORK", "BROWSER_FAILURE", "UPLOAD_FAILURE", "UNKNOWN", "SITE_CHANGED", "UNKNOWN_QUESTION"] as const)(
+		"retries %s with a new Browser Run after the backoff",
+		async (category) => {
+			const { owner, applicationId } = await readyApplication();
+			const browser = pipeline(scriptedRunner([failed(category)]).runner);
+			expect(await browser.dispatch()).toBe(1);
+			await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+			const app = await getApplication(database.db, owner, applicationId);
+			expect(app).toMatchObject({ status: "READY", attempts: 1 });
+			expect(app?.retryAfter).not.toBeNull();
+			expect(await listInterventions(database.db, owner, applicationId)).toEqual([]);
+		},
+	);
+
+	it.each([
+		"CAPTCHA",
+		"AUTH_REQUIRED",
+		"AUTHORITATIVE_FACT_REQUIRED",
+		"ASSESSMENT_REQUIRED",
+		"UNSUPPORTED_FLOW",
+		"DUPLICATE_APPLICATION",
+	] as const)("stops %s in Needs You at once, with its Intervention, and never retries it", async (category) => {
+		const { owner, applicationId } = await readyApplication();
+		const { runner, requests } = scriptedRunner([failed(category)]);
+		const browser = pipeline(runner);
+		expect(await browser.dispatch()).toBe(1);
+		const { browserRunId } = await queuedRun(applicationId);
+		await browser.runBrowser(owner, browserRunId);
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({
+			status: "NEEDS_YOU",
+			attempts: 1,
+			retryAfter: null,
+		});
+		expect(await listInterventions(database.db, owner, applicationId)).toMatchObject([
+			{ kind: category, browserRunId },
+		]);
+		expect(await browser.dispatch()).toBe(0);
+		expect(requests).toHaveLength(1);
+		// A duplicate is never counted as Submitted by itself.
+		expect(await countSubmitted(database.db, owner, "UTC")).toEqual({ today: 0, week: 0, allTime: 0 });
+	});
+
+	it("expires the Application when the posting is gone (JOB_EXPIRED), with no Intervention", async () => {
+		const { owner, applicationId } = await readyApplication();
+		const browser = pipeline(scriptedRunner([failed("JOB_EXPIRED")]).runner);
+		expect(await browser.dispatch()).toBe(1);
+		await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+		expect(await status(owner, applicationId)).toBe("EXPIRED");
+		expect(await listInterventions(database.db, owner, applicationId)).toEqual([]);
+		expect(await browser.dispatch()).toBe(0);
+	});
+
+	it("uses no attempt for an aborted run: dispatched again at once, the earlier failure still counted", async () => {
+		const { owner, applicationId } = await readyApplication();
+		const { runner, requests } = scriptedRunner([aborted, failed("NETWORK"), aborted]);
+		const browser = pipeline(runner);
+		expect(await browser.dispatch()).toBe(1);
+		await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+		// The run's end dispatched it again straight away: no backoff, no attempt.
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({
+			status: "APPLYING",
+			attempts: 0,
+			retryAfter: null,
+		});
+		await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({ status: "READY", attempts: 1 });
+		await due(applicationId);
+		expect(await browser.dispatch()).toBe(1);
+		await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({ status: "APPLYING", attempts: 1 });
+		expect(requests).toHaveLength(3);
+		expect((await listBrowserRuns(database.db, owner, applicationId)).map((r) => r.status)).toEqual([
+			"QUEUED",
+			"ABORTED",
+			"FAILED",
+			"ABORTED",
+		]);
+		await database.db.execute(sql`update browser_run set status = 'ABORTED' where application_id = ${applicationId}`);
+	});
+
+	it("counts a run that hits its wall-clock limit as a failure, not an abort", async () => {
+		const { owner, applicationId } = await readyApplication();
+		const runner: BrowserRunner = {
+			async run(request) {
+				await untilAborted(request.signal);
+				return aborted;
+			},
+			close: async () => {},
+		};
+		const browser = pipeline(runner, [], "worker-a", { timeoutMs: 50 });
+		expect(await browser.dispatch()).toBe(1);
+		await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({ status: "READY", attempts: 1 });
+		expect((await listBrowserRuns(database.db, owner, applicationId))[0]).toMatchObject({
+			status: "FAILED",
+			failure: { category: "UNKNOWN", detail: "timed out" },
+		});
+	});
+
+	it("aborts a run before the boundary on graceful shutdown, using no attempt, and starts nothing new", async () => {
+		const { owner, applicationId } = await readyApplication();
+		let started!: () => void;
+		const running = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const runner: BrowserRunner = {
+			async run(request) {
+				started();
+				await untilAborted(request.signal);
+				return aborted;
+			},
+			close: async () => {},
+		};
+		const browser = pipeline(runner);
+		expect(await browser.dispatch()).toBe(1);
+		const run = browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+		await running;
+		await browser.stop({ graceMs: 10_000 });
+		await run;
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({
+			status: "READY",
+			attempts: 0,
+			retryAfter: null,
+		});
+		expect((await listBrowserRuns(database.db, owner, applicationId))[0]?.status).toBe("ABORTED");
+		// The stopping worker dispatches nothing more and runs no job it is still handed.
+		expect(await browser.dispatch()).toBe(0);
+		const next = pipeline(scriptedRunner([]).runner, [], "worker-next");
+		expect(await next.dispatch()).toBe(1);
+		const { browserRunId } = await queuedRun(applicationId);
+		await browser.runBrowser(owner, browserRunId);
+		expect((await listBrowserRuns(database.db, owner, applicationId))[0]).toMatchObject({
+			id: browserRunId,
+			status: "QUEUED",
+		});
+		await database.db.execute(sql`update browser_run set status = 'ABORTED' where id = ${browserRunId}`);
 	});
 });
 
@@ -497,7 +751,7 @@ describe("SubmitGate through the production path", () => {
 		try {
 			expect(await browser.dispatch()).toBe(1);
 			await browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
-			expect(await status(owner, applicationId)).toBe("READY");
+			expect(await getApplication(database.db, owner, applicationId)).toMatchObject({ status: "READY", attempts: 0 });
 			expect(await listSubmitIntents(database.db, owner, applicationId)).toEqual([]);
 			expect((await listActiveHolds(database.db, owner)).map((h) => h.scope)).toEqual(["journal"]);
 			expect((await listBrowserRuns(database.db, owner, applicationId))[0]?.status).toBe("ABORTED");
@@ -539,5 +793,52 @@ describe("SubmitGate through the production path", () => {
 		expect(requests).toHaveLength(1);
 		expect(await status(canary.owner, canary.applicationId)).toBe("READY");
 		expect(await listSubmitIntents(database.db, canary.owner, canary.applicationId)).toEqual([]);
+	});
+
+	it.each([
+		["confirms within the grace", "SUBMITTED"],
+		["never confirms before the grace runs out", "SUBMIT_UNKNOWN"],
+	] as const)("gives a SUBMITTING run bounded grace on graceful shutdown: it %s and is %s", async (_case, outcome) => {
+		// The one browser is for this run: the canary scenario leaves its Application READY.
+		await database.db.execute(sql`update application set status = 'ABANDONED' where status = 'READY'`);
+		const { owner, applicationId } = await liveApplication();
+		let crossed!: () => void;
+		const atBoundary = new Promise<void>((resolve) => {
+			crossed = resolve;
+		});
+		let confirm!: () => void;
+		const confirmed = new Promise<void>((resolve) => {
+			confirm = resolve;
+		});
+		let abortedAtConfirmation: boolean | null = null;
+		const runner: BrowserRunner = {
+			async run(request): Promise<RunOutcome> {
+				if (!(await request.gate.cross([]))) return aborted;
+				crossed();
+				await Promise.race([confirmed, untilAborted(request.signal)]);
+				abortedAtConfirmation = request.signal.aborted;
+				// As the driver does: past the boundary, an abort is never a failure to retry.
+				return request.signal.aborted
+					? { kind: "submit_unknown", detail: "AbortError", url: null, fields: [] }
+					: { kind: "submitted", confirmation: CONFIRMATION, url: CONFIRMATION.url, fields: [] };
+			},
+			close: async () => {},
+		};
+		const browser = pipeline(runner);
+		expect(await browser.dispatch()).toBe(1);
+		const run = browser.runBrowser(owner, (await queuedRun(applicationId)).browserRunId);
+		await atBoundary;
+		const stopped = browser.stop({ graceMs: outcome === "SUBMITTED" ? 10_000 : 100 });
+		// Shutdown does not abort it: it is still recording its outcome.
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(await status(owner, applicationId)).toBe("SUBMITTING");
+		if (outcome === "SUBMITTED") confirm();
+		await stopped;
+		await run;
+		expect(abortedAtConfirmation).toBe(outcome !== "SUBMITTED");
+		expect(await status(owner, applicationId)).toBe(outcome);
+		const kinds = (await listInterventions(database.db, owner, applicationId)).map((i) => i.kind);
+		expect(kinds).toEqual(outcome === "SUBMITTED" ? [] : ["SUBMIT_UNKNOWN"]);
+		expect(await getApplication(database.db, owner, applicationId)).toMatchObject({ attempts: 0 });
 	});
 });

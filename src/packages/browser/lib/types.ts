@@ -1,4 +1,5 @@
 import type { Page } from "playwright";
+import type { Attribution, LlmClient } from "../../ai/index";
 import type { Confirmation, FailureCategory, FieldRecord, RunEvent, RunMode } from "../../applications/index";
 import type { ApplicationQuestion } from "../../discovery/index";
 import type { ApplicationAnswer } from "../../generation/index";
@@ -6,6 +7,7 @@ import type { ApplicationAnswer } from "../../generation/index";
 // The Browser Run's record (modes, events, the field ledger, failure categories) is the
 // `applications` module's: it stores them on the `browser_run` row.
 export type {
+	ClassifiedBy,
 	Confirmation,
 	FailureCategory,
 	FieldRecord,
@@ -20,6 +22,9 @@ export type RunEventSink = {
 	/** Stores a screenshot and returns its evidence ref. */
 	evidence(label: string, png: Buffer): Promise<string>;
 };
+
+/** The run's model access (§12), on the run's attribution: bounded failure classification (§10). */
+export type RunAi = { llm: LlmClient; attribution: Attribution };
 
 /** A file from the current Package that a field may upload (§14: uploads only from the Package). */
 export type PackageFile = { path: string; filename: string };
@@ -64,6 +69,7 @@ export type RunOutcome =
 	| { kind: "dry_run_complete"; url: string; fields: FieldRecord[] }
 	| { kind: "submitted"; confirmation: Confirmation; url: string; fields: FieldRecord[] }
 	| { kind: "submit_unknown"; detail: string; url: string | null; fields: FieldRecord[] }
+	/** Before the boundary. A driver reports its own finding; the runner classifies it (§10). */
 	| { kind: "failed"; category: FailureCategory; detail: string; url: string | null; fields: FieldRecord[] }
 	| { kind: "aborted"; reason: string; url: string | null; fields: FieldRecord[] };
 

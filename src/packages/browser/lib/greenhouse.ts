@@ -243,8 +243,8 @@ export const greenhouseDriver: Driver = {
 			signal,
 		});
 		await capture(page, events, "Form filled", frame.locator(FORM));
+		// The runner classifies a failure and records it (§10).
 		if (result.failure) {
-			await events.record({ type: "failed", category: result.failure.category });
 			return { kind: "failed", ...result.failure, url: page.url(), fields: result.fields };
 		}
 		if (!live) {
@@ -253,7 +253,6 @@ export const greenhouseDriver: Driver = {
 		}
 		const button = frame.locator(`${FORM} button[type=submit]`);
 		if ((await button.count()) !== 1) {
-			await events.record({ type: "failed", category: "SITE_CHANGED" });
 			return {
 				kind: "failed",
 				category: "SITE_CHANGED",

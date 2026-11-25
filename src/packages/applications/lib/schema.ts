@@ -59,6 +59,10 @@ export const application = pgTable(
 		preparationDispatchedAt: timestamp("preparation_dispatched_at", { withTimezone: true }),
 		/** The Candidate's explicit choice for the next Browser Run (§5); cleared when one is dispatched. */
 		requestedMode: text("requested_mode", { enum: SUBMISSION_MODES }),
+		/** Failed Browser Runs since one last finished or the Candidate gave a fresh budget (§5: 3, then Needs You). */
+		attempts: integer("attempts").notNull().default(0),
+		/** A failed run's backoff (§5): READY, but not dispatched before this. */
+		retryAfter: timestamp("retry_after", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	},

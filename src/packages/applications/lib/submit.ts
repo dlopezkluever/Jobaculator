@@ -5,7 +5,8 @@ import type { UserId } from "../../db/ownership";
 import { opportunity } from "../../discovery/tables";
 import { appendEvent, defineEvent } from "../../events/index";
 import { transition } from "./lifecycle";
-import { application, applicationPackage, browserRun, intervention, submitIntent } from "./schema";
+import { openIntervention } from "./recovery";
+import { application, applicationPackage, browserRun, submitIntent } from "./schema";
 import { APPLICATION_SUBJECT, type Confirmation, type FieldRecord, type PackageRevision } from "./types";
 
 // The submit boundary (§5, #12, #22, ADR 0004): the intent a live Browser Run crosses it under,
@@ -153,12 +154,7 @@ export async function markUncertain(
 	if (!(await transition(tx, owner, ids.applicationId, "SUBMITTING", "SUBMIT_UNKNOWN"))) {
 		throw new Error("an uncertain submission's Application was not SUBMITTING");
 	}
-	await tx.insert(intervention).values({
-		userId: owner,
-		applicationId: ids.applicationId,
-		browserRunId: ids.browserRunId,
-		kind: "SUBMIT_UNKNOWN",
-	});
+	await openIntervention(tx, owner, ids, "SUBMIT_UNKNOWN");
 	await appendEvent(tx, owner, submissionUncertain, ids.applicationId, { intentId: ids.intentId, reason });
 }
 
